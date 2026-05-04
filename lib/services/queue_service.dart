@@ -11,7 +11,7 @@ class QueueService extends ChangeNotifier {
   final MatchmakingEngine _engine = MatchmakingEngine();
   final DatabaseService   _db     = DatabaseService();
   final List<Session>     _sessions = [];
-
+  
   bool _loading = true;
   bool get loading => _loading;
 
