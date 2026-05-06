@@ -155,12 +155,11 @@ class QueueService extends ChangeNotifier {
 
   // ── Player management ──────────────────────────────────────
 
-  // Monotonic counter so bulk imports never produce duplicate IDs
   int _playerIdCounter = 0;
 
   String _newPlayerId(String sessionId) {
     _playerIdCounter++;
-    return '\${sessionId}_\${DateTime.now().millisecondsSinceEpoch}_\$_playerIdCounter';
+    return '${sessionId}_${DateTime.now().millisecondsSinceEpoch}_$_playerIdCounter';
   }
 
   Future<void> addPlayerToSession({
@@ -182,7 +181,6 @@ class QueueService extends ChangeNotifier {
     await _db.savePlayer(player, sessionId);
   }
 
-  /// Adds multiple players in one DB write — use for bulk import.
   Future<void> addPlayersBulk({
     required String sessionId,
     required List<String> names,
@@ -208,7 +206,6 @@ class QueueService extends ChangeNotifier {
   }) async {
     final s = getSession(sessionId);
     if (s == null) return;
-    // Clear partner references
     for (final p in s.players) {
       if (p.preferredPartnerId == playerId) {
         p.preferredPartnerId = null;
@@ -221,12 +218,10 @@ class QueueService extends ChangeNotifier {
     await _db.savePlayers(s.players, sessionId);
   }
 
-  /// Set or clear a player's preferred partner.
-  /// Also sets the reverse link so both point to each other.
   Future<void> setPreferredPartner({
     required String sessionId,
     required String playerId,
-    required String? partnerId, // null = clear
+    required String? partnerId, 
   }) async {
     final s = getSession(sessionId);
     if (s == null) return;
@@ -235,7 +230,6 @@ class QueueService extends ChangeNotifier {
     try { player = s.players.firstWhere((p) => p.id == playerId); }
     catch (_) { return; }
 
-    // Clear old reverse link
     if (player.preferredPartnerId != null) {
       try {
         final oldPartner = s.players
@@ -246,11 +240,9 @@ class QueueService extends ChangeNotifier {
 
     player.preferredPartnerId = partnerId;
 
-    // Set reverse link
     if (partnerId != null) {
       try {
         final partner = s.players.firstWhere((p) => p.id == partnerId);
-        // Clear partner's old reverse link first
         if (partner.preferredPartnerId != null &&
             partner.preferredPartnerId != playerId) {
           try {
@@ -273,8 +265,11 @@ class QueueService extends ChangeNotifier {
     final s = getSession(sessionId);
     if (s == null) return;
     _haptic();
+    
+    // Ensure index alignment with current list length
+    final nextIndex = s.activeCourts.length;
     s.activeCourts.add(Court(
-      index: s.activeCourts.length,
+      index: nextIndex,
       teamA: [],
       teamB: [],
       type:  type ?? s.defaultCourtType,
@@ -287,7 +282,6 @@ class QueueService extends ChangeNotifier {
     final s = getSession(sessionId);
     if (s == null || courtIndex >= s.activeCourts.length) return;
     final c = s.activeCourts[courtIndex];
-    // Return excess players to queue if switching to singles
     if (type == CourtType.singles) {
       if (c.teamA.length > 1) {
         final extra = c.teamA.removeAt(1);
@@ -313,6 +307,7 @@ class QueueService extends ChangeNotifier {
       p.resetWaitTime();
       if (!s.waitingRoom.any((x) => x.id == p.id)) s.waitingRoom.add(p);
     }
+    // Re-index remaining courts
     for (var i = 0; i < s.activeCourts.length; i++) {
       final c = s.activeCourts[i];
       s.activeCourts[i] = Court(
@@ -332,27 +327,20 @@ class QueueService extends ChangeNotifier {
     final s = getSession(sessionId);
     if (s == null) return false;
 
-    // If no specific court given, find the first empty slot.
-    // "Empty" = both teams have 0 players.
-    // If no empty slot exists within courtCount, append a new one.
     int targetIndex = courtIndex;
     if (targetIndex == -1) {
-      // Look for first empty court in existing activeCourts
+      // Find first empty slot or append
       final emptyIdx = s.activeCourts.indexWhere(
           (c) => c.teamA.isEmpty && c.teamB.isEmpty);
       if (emptyIdx != -1) {
         targetIndex = emptyIdx;
-      } else if (s.activeCourts.length < s.courtCount) {
-        // There are visual slots not yet in activeCourts — use next slot index
-        targetIndex = s.activeCourts.length; // will append
       } else {
-        targetIndex = -1; // truly append beyond courtCount
+        targetIndex = s.activeCourts.length; 
       }
     }
 
-    // Determine court type
     CourtType type;
-    if (targetIndex >= 0 && targetIndex < s.activeCourts.length) {
+    if (targetIndex < s.activeCourts.length) {
       type = s.activeCourts[targetIndex].type;
     } else {
       type = courtType ?? s.defaultCourtType;
@@ -365,19 +353,21 @@ class QueueService extends ChangeNotifier {
     final result   = _engine.findBestMatch(s.waitingRoom, needed);
     final selected = result.selectedPlayers;
 
+    // Remove from queue
     for (final p in selected) {
       s.waitingRoom.removeWhere((x) => x.id == p.id);
     }
 
     final teams = _assignTeams(selected, s.teamMode, type);
     final court = Court(
-      index: targetIndex == -1 ? s.activeCourts.length : targetIndex,
+      index: targetIndex,
       teamA: teams[0],
       teamB: teams[1],
       type:  type,
     );
 
-    if (targetIndex == -1 || targetIndex >= s.activeCourts.length) {
+    // Update active list
+    if (targetIndex >= s.activeCourts.length) {
       s.activeCourts.add(court);
     } else {
       s.activeCourts[targetIndex] = court;
@@ -491,7 +481,6 @@ class QueueService extends ChangeNotifier {
       s.waitingRoom.add(p);
     }
 
-    // Reset court to empty (keep slot visible)
     s.activeCourts[courtIndex] = Court(
       index: courtIndex,
       teamA: [],
@@ -538,12 +527,10 @@ class QueueService extends ChangeNotifier {
 
   List<List<Player>> _assignTeams(
       List<Player> players, TeamAssignmentMode mode, CourtType type) {
-    // For singles, teams are always 1v1
     if (type == CourtType.singles) {
       return [[players[0]], [players[1]]];
     }
 
-    // For doubles with preferred partners, keep pairs together
     final paired    = <Player>[];
     final unpaired  = <Player>[];
     final usedIds   = <String>{};
@@ -565,17 +552,13 @@ class QueueService extends ChangeNotifier {
       }
     }
 
-    // If we have exactly one pair + 2 unpaired → pair vs unpaired
     if (paired.length == 2 && unpaired.length == 2) {
       return [paired, unpaired];
     }
-
-    // If two pairs → pair A vs pair B
     if (paired.length == 4) {
       return [[paired[0], paired[1]], [paired[2], paired[3]]];
     }
 
-    // Fallback: use mode-based assignment
     final p = [...players];
     switch (mode) {
       case TeamAssignmentMode.random:
