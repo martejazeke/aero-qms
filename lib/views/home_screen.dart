@@ -620,8 +620,8 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
             ),
           ),
         ]),
-      ),
-    );
+        ), // SingleChildScrollView
+      );
   }
 
   String _formatDate(DateTime d) {

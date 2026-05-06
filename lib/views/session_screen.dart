@@ -76,11 +76,18 @@ class _SessionScreenState extends State<SessionScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          if (!isArchived)
+          if (!isArchived) ...[
+            IconButton(
+              icon: const Icon(Icons.group_add_outlined),
+              tooltip: 'Bulk import',
+              onPressed: () => _showBulkImportDialog(context, session.id),
+            ),
             IconButton(
               icon: const Icon(Icons.person_add_outlined),
+              tooltip: 'Add player',
               onPressed: () => _showAddPlayerDialog(context, session.id),
             ),
+          ],
           if (isArchived)
             Container(
               margin: const EdgeInsets.only(right: 12),
@@ -245,6 +252,176 @@ class _SessionScreenState extends State<SessionScreen> {
     );
   }
 
+  // ── Bulk import ─────────────────────────────────────────────
+  void _showBulkImportDialog(BuildContext context, String sessionId) {
+    final ctrl = TextEditingController();
+    SkillLevel defaultSkill = SkillLevel.intermediate;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => Padding(
+          padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: BoxDecoration(
+                color: _cardBg(context),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(24))),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(child: Container(
+                  width: 36, height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(color: _borderColor(context),
+                      borderRadius: BorderRadius.circular(2)),
+                )),
+                Row(children: [
+                  const Icon(Icons.group_add_outlined,
+                      color: _gold, size: 22),
+                  const SizedBox(width: 10),
+                  Text('Bulk Import Players',
+                      style: TextStyle(fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: _textPrimary(context))),
+                ]),
+                const SizedBox(height: 6),
+                Text('Paste names separated by commas or new lines.',
+                    style: TextStyle(fontSize: 13,
+                        color: _textSecondary(context))),
+                const SizedBox(height: 16),
+                _Label('DEFAULT SKILL LEVEL'),
+                const SizedBox(height: 8),
+                Row(
+                  children: SkillLevel.values.map((skill) {
+                    final sel = defaultSkill == skill;
+                    final col = _skillColor(skill);
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: () => set(() => defaultSkill = skill),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          margin: EdgeInsets.only(
+                              right: skill != SkillLevel.advanced ? 8 : 0),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: sel
+                                ? col.withOpacity(0.12) : _surfaceDim(context),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: sel ? col : Colors.transparent,
+                                width: 1.5),
+                          ),
+                          child: Text(
+                            skill.name[0].toUpperCase() +
+                                skill.name.substring(1),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: sel
+                                    ? col : _textSecondary(context)),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+                _Label('PLAYER NAMES'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  maxLines: 6,
+                  style: TextStyle(fontSize: 14,
+                      color: _textPrimary(context)),
+                  decoration: _inputDeco(
+                      'e.g. Alice, Bob, Carol\nDave, Eve', context),
+                ),
+                const SizedBox(height: 8),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: ctrl,
+                  builder: (_, val, __) {
+                    final names = _parseNames(val.text);
+                    return Text(
+                      names.isEmpty
+                          ? 'Enter names above'
+                          : '${names.length} player${names.length == 1 ? "" : "s"} ready to import',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: names.isEmpty
+                            ? _textSecondary(context) : _gold,
+                        fontWeight: names.isEmpty
+                            ? FontWeight.w400 : FontWeight.w600,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final names = _parseNames(ctrl.text);
+                      if (names.isEmpty) return;
+                      final queue = context.read<QueueService>();
+                      queue.addPlayersBulk(
+                        sessionId: sessionId,
+                        names: names,
+                        skill: defaultSkill,
+                      );
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(
+                            '${names.length} players added to queue'),
+                        behavior: SnackBarBehavior.floating,
+                      ));
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _gold,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Import Players',
+                        style: TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Parses raw text into clean, deduplicated, sorted name list.
+  /// Handles commas, newlines, semicolons.
+  /// Handles numbered lists (1. 2. 1) 2)), commas, newlines,
+  /// semicolons, zero-width unicode chars, and emojis in names.
+  List<String> _parseNames(String raw) {
+    return raw
+        .split(RegExp(r'[,\n;]+'))
+        .map((s) {
+          // Remove zero-width spaces and invisible unicode
+          var c = s.replaceAll(
+              RegExp(r'[\u200b\u200c\u200d\u2060\ufeff\u00a0]'), '');
+          // Strip leading number prefixes: "1. " "2) " etc
+          c = c.replaceAll(RegExp(r'^\d+[\.)\s]\s*'), '');
+          return c.trim();
+        })
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
   String _formatDate(DateTime d) {
     const mo = ['Jan','Feb','Mar','Apr','May','Jun',
                  'Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -366,9 +543,12 @@ class _QueueTab extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(p.name, style: TextStyle(fontSize: 15,
                   fontWeight: FontWeight.w600, color: _textPrimary(context))),
-              Text('$waitMins min wait · ${p.gamesPlayed} games',
-                  style: TextStyle(
-                      fontSize: 12, color: _textSecondary(context))),
+              Text(
+                isArchived
+                    ? '${p.gamesPlayed} games played'
+                    : '$waitMins min wait · ${p.gamesPlayed} games',
+                style: TextStyle(
+                    fontSize: 12, color: _textSecondary(context))),
             ])),
             if (p.currentStreak != 0) ...[
               _StreakBadge(streak: p.currentStreak),

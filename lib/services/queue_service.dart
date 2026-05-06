@@ -155,6 +155,14 @@ class QueueService extends ChangeNotifier {
 
   // ── Player management ──────────────────────────────────────
 
+  // Monotonic counter so bulk imports never produce duplicate IDs
+  int _playerIdCounter = 0;
+
+  String _newPlayerId(String sessionId) {
+    _playerIdCounter++;
+    return '\${sessionId}_\${DateTime.now().millisecondsSinceEpoch}_\$_playerIdCounter';
+  }
+
   Future<void> addPlayerToSession({
     required String sessionId,
     required String name,
@@ -164,7 +172,7 @@ class QueueService extends ChangeNotifier {
     if (s == null) return;
     _haptic();
     final player = Player(
-      id:    '${sessionId}_${DateTime.now().millisecondsSinceEpoch}',
+      id:    _newPlayerId(sessionId),
       name:  name,
       skill: skill,
     );
@@ -172,6 +180,26 @@ class QueueService extends ChangeNotifier {
     s.waitingRoom.add(player);
     notifyListeners();
     await _db.savePlayer(player, sessionId);
+  }
+
+  /// Adds multiple players in one DB write — use for bulk import.
+  Future<void> addPlayersBulk({
+    required String sessionId,
+    required List<String> names,
+    required SkillLevel skill,
+  }) async {
+    final s = getSession(sessionId);
+    if (s == null) return;
+    _haptic();
+    final newPlayers = names.map((name) => Player(
+      id:    _newPlayerId(sessionId),
+      name:  name,
+      skill: skill,
+    )).toList();
+    s.players.addAll(newPlayers);
+    s.waitingRoom.addAll(newPlayers);
+    notifyListeners();
+    await _db.savePlayers(newPlayers, sessionId);
   }
 
   Future<void> removePlayerFromSession({
@@ -304,10 +332,28 @@ class QueueService extends ChangeNotifier {
     final s = getSession(sessionId);
     if (s == null) return false;
 
-    // Determine court type for this fill
+    // If no specific court given, find the first empty slot.
+    // "Empty" = both teams have 0 players.
+    // If no empty slot exists within courtCount, append a new one.
+    int targetIndex = courtIndex;
+    if (targetIndex == -1) {
+      // Look for first empty court in existing activeCourts
+      final emptyIdx = s.activeCourts.indexWhere(
+          (c) => c.teamA.isEmpty && c.teamB.isEmpty);
+      if (emptyIdx != -1) {
+        targetIndex = emptyIdx;
+      } else if (s.activeCourts.length < s.courtCount) {
+        // There are visual slots not yet in activeCourts — use next slot index
+        targetIndex = s.activeCourts.length; // will append
+      } else {
+        targetIndex = -1; // truly append beyond courtCount
+      }
+    }
+
+    // Determine court type
     CourtType type;
-    if (courtIndex >= 0 && courtIndex < s.activeCourts.length) {
-      type = s.activeCourts[courtIndex].type;
+    if (targetIndex >= 0 && targetIndex < s.activeCourts.length) {
+      type = s.activeCourts[targetIndex].type;
     } else {
       type = courtType ?? s.defaultCourtType;
     }
@@ -325,16 +371,16 @@ class QueueService extends ChangeNotifier {
 
     final teams = _assignTeams(selected, s.teamMode, type);
     final court = Court(
-      index: courtIndex == -1 ? s.activeCourts.length : courtIndex,
+      index: targetIndex == -1 ? s.activeCourts.length : targetIndex,
       teamA: teams[0],
       teamB: teams[1],
       type:  type,
     );
 
-    if (courtIndex == -1 || courtIndex >= s.activeCourts.length) {
+    if (targetIndex == -1 || targetIndex >= s.activeCourts.length) {
       s.activeCourts.add(court);
     } else {
-      s.activeCourts[courtIndex] = court;
+      s.activeCourts[targetIndex] = court;
     }
 
     _engine.recordMatch(selected);
