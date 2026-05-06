@@ -25,140 +25,144 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ── Appearance ──────────────────────────────────────
-          _SectionHeader('APPEARANCE'),
-          _SettingCard(
-            icon: isDark ? Icons.dark_mode : Icons.light_mode_outlined,
-            title: 'Theme',
-            subtitle: isDark ? 'Dark' : 'Light',
-            trailing: Switch(
-              value: isDark,
-              activeColor: _gold,
-              onChanged: (val) => context.read<SettingsService>()
-                  .setThemeMode(val ? ThemeMode.dark : ThemeMode.light),
-            ),
-          ),
-
-          // ── Language ────────────────────────────────────────
-          _SectionHeader('LANGUAGE & REGION'),
-          _SettingCard(
-            icon: Icons.language_outlined,
-            title: 'Language',
-            subtitle: settings.locale.languageCode == 'ar'
-                ? 'العربية' : 'English',
-            trailing: _GoldDropdown<String>(
-              value: settings.locale.languageCode,
-              items: const [
-                DropdownMenuItem(value: 'en', child: Text('English')),
-                DropdownMenuItem(value: 'ar', child: Text('العربية')),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  context.read<SettingsService>()
-                      .setLocale(Locale(val));
-                }
-              },
-            ),
-          ),
-
-          // ── Defaults ────────────────────────────────────────
-          _SectionHeader('SESSION DEFAULTS'),
-          _SettingCard(
-            icon: Icons.sports_tennis_outlined,
-            title: 'Default Courts',
-            subtitle: '${settings.defaultCourts} courts per session',
-            trailing: _GoldDropdown<int>(
-              value: settings.defaultCourts,
-              items: List.generate(8, (i) => DropdownMenuItem(
-                value: i + 1,
-                child: Text('${i + 1}'),
-              )),
-              onChanged: (val) {
-                if (val != null) {
-                  context.read<SettingsService>().setDefaultCourts(val);
-                }
-              },
-            ),
-          ),
-          _SettingCard(
-            icon: Icons.balance_outlined,
-            title: 'Default Team Mode',
-            subtitle: _teamModeLabel(settings.defaultTeamMode),
-            trailing: _GoldDropdown<String>(
-              value: settings.defaultTeamMode,
-              items: const [
-                DropdownMenuItem(value: 'balanced',
-                    child: Text('Balanced')),
-                DropdownMenuItem(value: 'random',
-                    child: Text('Random')),
-                DropdownMenuItem(value: 'perLevel',
-                    child: Text('Per Level')),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  context.read<SettingsService>().setDefaultTeamMode(val);
-                }
-              },
-            ),
-          ),
-
-          // ── Feedback ────────────────────────────────────────
-          _SectionHeader('FEEDBACK'),
-          _SettingCard(
-            icon: Icons.vibration_outlined,
-            title: 'Haptics',
-            subtitle: 'Vibration on actions',
-            trailing: Switch(
-              value: settings.hapticsEnabled,
-              activeColor: _gold,
-              onChanged: (val) =>
-                  context.read<SettingsService>().setHaptics(val),
-            ),
-          ),
-          _SettingCard(
-            icon: Icons.volume_up_outlined,
-            title: 'Sound',
-            subtitle: 'Audio cues',
-            trailing: Switch(
-              value: settings.soundEnabled,
-              activeColor: _gold,
-              onChanged: (val) =>
-                  context.read<SettingsService>().setSound(val),
-            ),
-          ),
-
-          // ── Security ────────────────────────────────────────
-          _SectionHeader('SECURITY'),
-          _SettingCard(
-            icon: Icons.lock_outline,
-            title: 'Admin PIN',
-            subtitle: settings.hasPin ? 'PIN set' : 'No PIN',
-            trailing: TextButton(
-              onPressed: () => _showPinDialog(context, settings),
-              child: Text(
-                settings.hasPin ? 'Change' : 'Set PIN',
-                style: const TextStyle(
-                    color: _gold, fontWeight: FontWeight.w600),
+          _Section('APPEARANCE'),
+          _Card(isDark: isDark,
+            child: _Row(
+              icon: isDark ? Icons.dark_mode : Icons.light_mode_outlined,
+              title: 'Theme',
+              subtitle: isDark ? 'Dark mode' : 'Light mode',
+              trailing: Switch(
+                value: isDark,
+                activeColor: _gold,
+                onChanged: (val) => context.read<SettingsService>()
+                    .setThemeMode(
+                        val ? ThemeMode.dark : ThemeMode.light),
               ),
             ),
           ),
-          if (settings.hasPin)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: TextButton(
-                onPressed: () => settings.setPin(null),
-                child: const Text('Remove PIN',
-                    style: TextStyle(color: Colors.redAccent)),
+
+          _Section('LANGUAGE & REGION'),
+          _Card(isDark: isDark,
+            child: _Row(
+              icon: Icons.language_outlined,
+              title: 'Language',
+              subtitle: settings.locale.languageCode == 'ar'
+                  ? 'العربية' : 'English',
+              trailing: _GoldDrop<String>(
+                value: settings.locale.languageCode,
+                items: const [
+                  DropdownMenuItem(value: 'en', child: Text('English')),
+                  DropdownMenuItem(value: 'ar', child: Text('العربية')),
+                ],
+                onChanged: (v) {
+                  if (v != null) context.read<SettingsService>()
+                      .setLocale(Locale(v));
+                },
               ),
             ),
+          ),
 
-          // ── About ────────────────────────────────────────────
-          _SectionHeader('ABOUT'),
-          _SettingCard(
-            icon: Icons.info_outline,
-            title: 'Aero QMS',
-            subtitle: 'Version 1.0.0',
-            trailing: const SizedBox(),
+          _Section('SESSION DEFAULTS'),
+          _Card(isDark: isDark,
+            child: _Row(
+              icon: Icons.sports_tennis_outlined,
+              title: 'Default Courts',
+              subtitle: '${settings.defaultCourts} courts',
+              trailing: _GoldDrop<int>(
+                value: settings.defaultCourts,
+                items: List.generate(8, (i) => DropdownMenuItem(
+                  value: i + 1, child: Text('${i + 1}'))),
+                onChanged: (v) {
+                  if (v != null) context.read<SettingsService>()
+                      .setDefaultCourts(v);
+                },
+              ),
+            ),
+          ),
+          _Card(isDark: isDark,
+            child: _Row(
+              icon: Icons.balance_outlined,
+              title: 'Default Team Mode',
+              subtitle: _modeLabel(settings.defaultTeamMode),
+              trailing: _GoldDrop<String>(
+                value: settings.defaultTeamMode,
+                items: const [
+                  DropdownMenuItem(value: 'balanced',
+                      child: Text('Balanced')),
+                  DropdownMenuItem(value: 'random',
+                      child: Text('Random')),
+                  DropdownMenuItem(value: 'perLevel',
+                      child: Text('Per Level')),
+                ],
+                onChanged: (v) {
+                  if (v != null) context.read<SettingsService>()
+                      .setDefaultTeamMode(v);
+                },
+              ),
+            ),
+          ),
+
+          _Section('FEEDBACK'),
+          _Card(isDark: isDark,
+            child: _Row(
+              icon: Icons.vibration_outlined,
+              title: 'Haptics',
+              subtitle: settings.hapticsEnabled ? 'On' : 'Off',
+              trailing: Switch(
+                value: settings.hapticsEnabled,
+                activeColor: _gold,
+                onChanged: (v) =>
+                    context.read<SettingsService>().setHaptics(v),
+              ),
+            ),
+          ),
+          _Card(isDark: isDark,
+            child: _Row(
+              icon: Icons.volume_up_outlined,
+              title: 'Sound',
+              subtitle: settings.soundEnabled ? 'On' : 'Off',
+              trailing: Switch(
+                value: settings.soundEnabled,
+                activeColor: _gold,
+                onChanged: (v) =>
+                    context.read<SettingsService>().setSound(v),
+              ),
+            ),
+          ),
+
+          _Section('SECURITY'),
+          _Card(isDark: isDark,
+            child: _Row(
+              icon: Icons.lock_outline,
+              title: 'Admin PIN',
+              subtitle: settings.hasPin ? 'PIN is set' : 'No PIN set',
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (settings.hasPin)
+                  TextButton(
+                    onPressed: () =>
+                        context.read<SettingsService>().setPin(''),
+                    child: const Text('Remove',
+                        style: TextStyle(color: Colors.redAccent,
+                            fontSize: 13)),
+                  ),
+                TextButton(
+                  onPressed: () => _showPinDialog(context, settings),
+                  child: Text(settings.hasPin ? 'Change' : 'Set PIN',
+                      style: const TextStyle(color: _gold,
+                          fontWeight: FontWeight.w600, fontSize: 13)),
+                ),
+              ]),
+            ),
+          ),
+
+          _Section('ABOUT'),
+          _Card(isDark: isDark,
+            child: _Row(
+              icon: Icons.info_outline,
+              title: 'Aero QMS',
+              subtitle: 'Version 1.0.0',
+              trailing: const SizedBox(),
+            ),
           ),
           const SizedBox(height: 40),
         ],
@@ -168,19 +172,40 @@ class SettingsScreen extends StatelessWidget {
 
   void _showPinDialog(BuildContext context, SettingsService settings) {
     final ctrl = TextEditingController();
+    final confirm = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(settings.hasPin ? 'Change PIN' : 'Set Admin PIN'),
-        content: TextField(
-          controller: ctrl,
-          keyboardType: TextInputType.number,
-          maxLength: 6,
-          obscureText: true,
-          decoration: const InputDecoration(
-            hintText: 'Enter 4–6 digit PIN',
-            counterText: '',
-          ),
+        content: Form(
+          key: formKey,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextFormField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              obscureText: true,
+              decoration: const InputDecoration(
+                  labelText: 'Enter PIN (4–6 digits)',
+                  counterText: ''),
+              validator: (v) => (v == null || v.length < 4)
+                  ? 'PIN must be at least 4 digits' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: confirm,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              obscureText: true,
+              decoration: const InputDecoration(
+                  labelText: 'Confirm PIN',
+                  counterText: ''),
+              validator: (v) => v != ctrl.text
+                  ? 'PINs do not match' : null,
+            ),
+          ]),
         ),
         actions: [
           TextButton(
@@ -189,71 +214,78 @@ class SettingsScreen extends StatelessWidget {
           ),
           TextButton(
             onPressed: () {
-              if (ctrl.text.length >= 4) {
-                settings.setPin(ctrl.text);
+              if (formKey.currentState?.validate() == true) {
+                context.read<SettingsService>().setPin(ctrl.text);
                 Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('PIN saved'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
               }
             },
             child: const Text('Save',
-                style: TextStyle(color: _gold, fontWeight: FontWeight.w600)),
+                style: TextStyle(color: _gold,
+                    fontWeight: FontWeight.w600)),
           ),
         ],
       ),
     );
   }
 
-  String _teamModeLabel(String mode) => switch (mode) {
-        'balanced' => 'Balanced',
-        'random'   => 'Random',
-        'perLevel' => 'Per Level',
-        _          => mode,
-      };
+  String _modeLabel(String m) => switch (m) {
+    'balanced' => 'Balanced',
+    'random'   => 'Random',
+    'perLevel' => 'Per Level',
+    _          => m,
+  };
 }
 
-// ── Shared widgets ────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────
 
-class _SectionHeader extends StatelessWidget {
+class _Section extends StatelessWidget {
   final String text;
-  const _SectionHeader(this.text);
-
+  const _Section(this.text);
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
-      child: Text(text,
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
-              color: Color(0xFF94A3B8), letterSpacing: 1.4)),
-    );
-  }
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
+    child: Text(text, style: const TextStyle(fontSize: 11,
+        fontWeight: FontWeight.w700, color: Color(0xFF94A3B8),
+        letterSpacing: 1.4)),
+  );
 }
 
-class _SettingCard extends StatelessWidget {
+class _Card extends StatelessWidget {
+  final Widget child;
+  final bool   isDark;
+  const _Card({required this.child, required this.isDark});
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    decoration: BoxDecoration(
+      color: isDark ? const Color(0xFF1F2937) : Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+          color: isDark ? const Color(0xFF374151)
+              : const Color(0xFFE2E8F0)),
+    ),
+    child: child,
+  );
+}
+
+class _Row extends StatelessWidget {
   final IconData icon;
   final String   title;
   final String   subtitle;
   final Widget   trailing;
-
-  const _SettingCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.trailing,
-  });
-
+  const _Row({required this.icon, required this.title,
+      required this.subtitle, required this.trailing});
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1F2937) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: isDark
-                ? const Color(0xFF374151)
-                : const Color(0xFFE2E8F0)),
-      ),
       child: Row(children: [
         Container(
           width: 36, height: 36,
@@ -277,29 +309,25 @@ class _SettingCard extends StatelessWidget {
   }
 }
 
-class _GoldDropdown<T> extends StatelessWidget {
+class _GoldDrop<T> extends StatelessWidget {
   final T value;
   final List<DropdownMenuItem<T>> items;
   final ValueChanged<T?> onChanged;
-
-  const _GoldDropdown({
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
-
+  const _GoldDrop({required this.value, required this.items,
+      required this.onChanged});
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return DropdownButtonHideUnderline(
       child: DropdownButton<T>(
         value: value,
         items: items,
         onChanged: onChanged,
-        style: const TextStyle(
-            color: _gold, fontWeight: FontWeight.w600, fontSize: 13),
-        icon: const Icon(Icons.keyboard_arrow_down, color: _gold, size: 18),
-        dropdownColor: Theme.of(context).brightness == Brightness.dark
-            ? const Color(0xFF1F2937) : Colors.white,
+        style: const TextStyle(color: _gold,
+            fontWeight: FontWeight.w600, fontSize: 13),
+        icon: const Icon(Icons.keyboard_arrow_down,
+            color: _gold, size: 18),
+        dropdownColor: isDark ? const Color(0xFF1F2937) : Colors.white,
       ),
     );
   }

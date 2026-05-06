@@ -1,6 +1,10 @@
+// lib/models/player.dart
+
 enum SkillLevel { beginner, intermediate, advanced }
 
 enum TeamAssignmentMode { balanced, random, perLevel }
+
+enum CourtType { singles, doubles }
 
 class Player {
   final String id;
@@ -9,12 +13,13 @@ class Player {
   int gamesPlayed;
   int wins;
   int losses;
-  int currentStreak; // positive = win streak, negative = loss streak
+  int currentStreak;
   bool isPresent;
   DateTime lastWaitStartTime;
-
-  // head-to-head record: opponentId -> [wins, losses]
   final Map<String, List<int>> headToHead;
+
+  /// ID of this player's preferred permanent partner (nullable).
+  String? preferredPartnerId;
 
   Player({
     required this.id,
@@ -25,26 +30,26 @@ class Player {
     this.losses = 0,
     this.currentStreak = 0,
     this.isPresent = true,
+    this.preferredPartnerId,
     DateTime? lastWaitStartTime,
     Map<String, List<int>>? headToHead,
   })  : lastWaitStartTime = lastWaitStartTime ?? DateTime.now(),
         headToHead = headToHead ?? {};
 
-  double get winRate => gamesPlayed == 0 ? 0.0 : wins / gamesPlayed;
+  double get winRate =>
+      gamesPlayed == 0 ? 0.0 : wins / gamesPlayed;
 
   String get winRateDisplay =>
       '${(winRate * 100).toStringAsFixed(0)}%';
 
-  /// Returns [wins, losses] against a specific opponent, or [0, 0] if never faced.
   List<int> recordAgainst(String opponentId) =>
       headToHead[opponentId] ?? [0, 0];
 
-  /// Win % against a specific opponent (0.0–1.0), or null if never faced.
   double? winRateAgainst(String opponentId) {
-    final record = headToHead[opponentId];
-    if (record == null) return null;
-    final total = record[0] + record[1];
-    return total == 0 ? null : record[0] / total;
+    final r = headToHead[opponentId];
+    if (r == null) return null;
+    final total = r[0] + r[1];
+    return total == 0 ? null : r[0] / total;
   }
 
   void recordWin({List<String> opponentIds = const []}) {
@@ -72,23 +77,30 @@ class Player {
   }
 }
 
-// ── Court model — holds team split ───────────────────────────
+// ── Court ─────────────────────────────────────────────────────
 
 class Court {
   final int index;
   List<Player> teamA;
   List<Player> teamB;
+  CourtType type; // singles or doubles
 
   Court({
     required this.index,
     required this.teamA,
     required this.teamB,
+    this.type = CourtType.doubles,
   });
+
+  int get playersPerTeam => type == CourtType.singles ? 1 : 2;
+  int get totalPlayers   => playersPerTeam * 2;
+  bool get isFull =>
+      teamA.length == playersPerTeam && teamB.length == playersPerTeam;
 
   List<Player> get allPlayers => [...teamA, ...teamB];
 }
 
-// ── Matchmaking output models ─────────────────────────────────
+// ── Matchmaking models ────────────────────────────────────────
 
 class PlayerScore implements Comparable<PlayerScore> {
   final Player player;

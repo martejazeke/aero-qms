@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/player.dart';
 import '../models/session.dart';
 import '../models/player.dart';
 import '../services/queue_service.dart';
@@ -113,11 +114,13 @@ class _HomeScreenState extends State<HomeScreen> {
         initialDate:       selDate,
         initialCourtCount: courtCount,
         initialTeamMode:   teamMode,
-        onConfirm: (name, date, courts, mode) {
+        onConfirm: (name, date, courts, mode, courtType) {
           final tm = TeamAssignmentMode.values.byName(mode);
+          final ct = courtType == 'singles'
+              ? CourtType.singles : CourtType.doubles;
           context.read<QueueService>().createSession(
-              name: name, date: date,
-              courtCount: courts, teamMode: tm);
+              name: name, date: date, courtCount: courts,
+              teamMode: tm, defaultCourtType: ct);
           Navigator.pop(ctx);
         },
       ),
@@ -417,7 +420,7 @@ class _CreateSessionSheet extends StatefulWidget {
   final DateTime initialDate;
   final int      initialCourtCount;
   final String   initialTeamMode;
-  final void Function(String, DateTime, int, String) onConfirm;
+  final void Function(String, DateTime, int, String, String) onConfirm;
 
   const _CreateSessionSheet({
     required this.nameController,
@@ -434,13 +437,14 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
   late DateTime _date;
   late int      _courts;
   late String   _teamMode;
+  String        _courtType = 'doubles';
 
   @override
   void initState() {
     super.initState();
-    _date     = widget.initialDate;
-    _courts   = widget.initialCourtCount;
-    _teamMode = widget.initialTeamMode;
+    _date      = widget.initialDate;
+    _courts    = widget.initialCourtCount;
+    _teamMode  = widget.initialTeamMode;
   }
 
   @override
@@ -525,6 +529,62 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
           ))),
           const SizedBox(height: 20),
 
+          const _SheetLabel('COURT TYPE'),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: GestureDetector(
+              onTap: () => setState(() => _courtType = 'singles'),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: _courtType == 'singles'
+                      ? _gold.withOpacity(0.1) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _courtType == 'singles'
+                      ? _gold : Colors.transparent, width: 1.5),
+                ),
+                child: Column(children: [
+                  Icon(Icons.person_outline, size: 20,
+                      color: _courtType == 'singles'
+                          ? _gold : const Color(0xFF64748B)),
+                  const SizedBox(height: 4),
+                  Text('Singles', textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _courtType == 'singles'
+                              ? _gold : const Color(0xFF64748B))),
+                ]),
+              ),
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: GestureDetector(
+              onTap: () => setState(() => _courtType = 'doubles'),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: _courtType == 'doubles'
+                      ? _gold.withOpacity(0.1) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _courtType == 'doubles'
+                      ? _gold : Colors.transparent, width: 1.5),
+                ),
+                child: Column(children: [
+                  Icon(Icons.people_outline, size: 20,
+                      color: _courtType == 'doubles'
+                          ? _gold : const Color(0xFF64748B)),
+                  const SizedBox(height: 4),
+                  Text('Doubles', textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _courtType == 'doubles'
+                              ? _gold : const Color(0xFF64748B))),
+                ]),
+              ),
+            )),
+          ]),
+          const SizedBox(height: 20),
           const _SheetLabel('TEAM MODE'),
           const SizedBox(height: 8),
           Row(children: [
@@ -545,7 +605,7 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
               onPressed: () {
                 final name = widget.nameController.text.trim();
                 if (name.isEmpty) return;
-                widget.onConfirm(name, _date, _courts, _teamMode);
+                widget.onConfirm(name, _date, _courts, _teamMode, _courtType);
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: _gold,

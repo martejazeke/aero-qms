@@ -1,46 +1,43 @@
 // lib/services/settings_service.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsService extends ChangeNotifier {
   late SharedPreferences _prefs;
 
-  // ── Defaults ──────────────────────────────────────────────
-  ThemeMode _themeMode        = ThemeMode.light;
-  Locale    _locale           = const Locale('en');
-  int       _defaultCourts    = 2;
-  String    _defaultTeamMode  = 'balanced';
-  bool      _hapticsEnabled   = true;
-  bool      _soundEnabled     = false;
-  String?   _adminPin;        // null = no pin set
+  ThemeMode _themeMode       = ThemeMode.light;
+  Locale    _locale          = const Locale('en');
+  int       _defaultCourts   = 2;
+  String    _defaultTeamMode = 'balanced';
+  bool      _hapticsEnabled  = true;
+  bool      _soundEnabled    = false;
+  String    _adminPin        = '';
 
-  // ── Getters ───────────────────────────────────────────────
   ThemeMode get themeMode       => _themeMode;
   Locale    get locale          => _locale;
   int       get defaultCourts   => _defaultCourts;
   String    get defaultTeamMode => _defaultTeamMode;
   bool      get hapticsEnabled  => _hapticsEnabled;
   bool      get soundEnabled    => _soundEnabled;
-  bool      get hasPin          => _adminPin != null && _adminPin!.isNotEmpty;
+  bool      get hasPin          => _adminPin.isNotEmpty;
   bool      get isDark          => _themeMode == ThemeMode.dark;
 
   bool validatePin(String pin) => _adminPin == pin;
 
-  // ── Init ──────────────────────────────────────────────────
   Future<void> init() async {
-    _prefs = await SharedPreferences.getInstance();
-    _themeMode       = ThemeMode.values[_prefs.getInt('themeMode') ?? 0];
-    _locale          = Locale(_prefs.getString('locale') ?? 'en');
-    _defaultCourts   = _prefs.getInt('defaultCourts') ?? 2;
+    _prefs         = await SharedPreferences.getInstance();
+    _themeMode     = ThemeMode.values[_prefs.getInt('themeMode') ?? 0];
+    _locale        = Locale(_prefs.getString('locale') ?? 'en');
+    _defaultCourts = _prefs.getInt('defaultCourts') ?? 2;
     _defaultTeamMode = _prefs.getString('defaultTeamMode') ?? 'balanced';
     _hapticsEnabled  = _prefs.getBool('hapticsEnabled') ?? true;
     _soundEnabled    = _prefs.getBool('soundEnabled') ?? false;
-    _adminPin        = _prefs.getString('adminPin');
+    _adminPin        = _prefs.getString('adminPin') ?? '';
     notifyListeners();
   }
 
-  // ── Setters ───────────────────────────────────────────────
   Future<void> setThemeMode(ThemeMode mode) async {
     _themeMode = mode;
     await _prefs.setInt('themeMode', mode.index);
@@ -68,6 +65,8 @@ class SettingsService extends ChangeNotifier {
   Future<void> setHaptics(bool val) async {
     _hapticsEnabled = val;
     await _prefs.setBool('hapticsEnabled', val);
+    // Give immediate feedback so user knows it worked
+    if (val) HapticFeedback.mediumImpact();
     notifyListeners();
   }
 
@@ -77,13 +76,30 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setPin(String? pin) async {
+  Future<void> setPin(String pin) async {
     _adminPin = pin;
-    if (pin == null || pin.isEmpty) {
+    if (pin.isEmpty) {
       await _prefs.remove('adminPin');
     } else {
       await _prefs.setString('adminPin', pin);
     }
     notifyListeners();
   }
+
+  /// Trigger haptic if enabled — call from UI on any action.
+  void haptic([HapticFeedbackType type = HapticFeedbackType.medium]) {
+    if (!_hapticsEnabled) return;
+    switch (type) {
+      case HapticFeedbackType.light:
+        HapticFeedback.lightImpact();
+      case HapticFeedbackType.medium:
+        HapticFeedback.mediumImpact();
+      case HapticFeedbackType.heavy:
+        HapticFeedback.heavyImpact();
+      case HapticFeedbackType.selection:
+        HapticFeedback.selectionClick();
+    }
+  }
 }
+
+enum HapticFeedbackType { light, medium, heavy, selection }

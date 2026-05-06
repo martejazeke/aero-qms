@@ -18,13 +18,15 @@ void main() async {
   final settings = SettingsService();
   await settings.init();
 
+  final queue = QueueService();
+  queue.attachSettings(settings); // wire haptics
+  await queue.loadFromDatabase();
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: settings),
-        ChangeNotifierProvider(
-          create: (_) => QueueService()..loadFromDatabase(),
-        ),
+        ChangeNotifierProvider.value(value: queue),
       ],
       child: const AeroApp(),
     ),
@@ -67,8 +69,8 @@ class AeroApp extends StatelessWidget {
         seedColor:  const Color(0xFFD4AF37),
         primary:    const Color(0xFFD4AF37),
         brightness: brightness,
-        surface:    isDark ? const Color(0xFF0C0A09) : const Color(0xFFF8FAFC),
-        onSurface:  isDark ? const Color(0xFFF8FAFC) : const Color(0xFF0C0A09),
+        surface:    isDark ? const Color(0xFF111827) : const Color(0xFFF8FAFC),
+        onSurface:  isDark ? const Color(0xFFF8FAFC) : const Color(0xFF111827),
       ),
       appBarTheme: AppBarTheme(
         backgroundColor:
@@ -76,17 +78,20 @@ class AeroApp extends StatelessWidget {
         elevation: 0,
         centerTitle: true,
         titleTextStyle: TextStyle(
-          color: isDark ? Colors.white : const Color(0xFF1C1917),
+          color: isDark ? Colors.white : const Color(0xFF111827),
           fontWeight: FontWeight.bold,
           fontSize: 20,
           letterSpacing: 1.5,
           fontFamily: GoogleFonts.plusJakartaSans().fontFamily,
         ),
         iconTheme: IconThemeData(
-            color: isDark ? Colors.white : const Color(0xFF1C1917)),
+            color: isDark ? Colors.white : const Color(0xFF111827)),
       ),
       scaffoldBackgroundColor:
-          isDark ? const Color(0xFF0C0A09) : const Color(0xFFF8FAFC),
+          isDark ? const Color(0xFF111827) : const Color(0xFFF8FAFC),
+      cardColor: isDark ? const Color(0xFF1F2937) : Colors.white,
+      dividerColor:
+          isDark ? const Color(0xFF374151) : const Color(0xFFE2E8F0),
     );
   }
 }
