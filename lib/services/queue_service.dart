@@ -189,15 +189,80 @@ class QueueService extends ChangeNotifier {
     final s = getSession(sessionId);
     if (s == null) return;
     _haptic();
-    final newPlayers = names.map((name) => Player(
-      id:    _newPlayerId(sessionId),
-      name:  name,
-      skill: skill,
-    )).toList();
+
+    final rng = Random();
+    final now = DateTime.now();
+
+    // Spread initial wait times randomly across 0-5 minutes so the
+    // first match isn't biased toward whoever appears first in the list.
+    // Real wait times take over naturally after the first match.
+    final newPlayers = names.map((name) {
+      final offsetSecs = rng.nextInt(300); // 0–300 s
+      return Player(
+        id:                _newPlayerId(sessionId),
+        name:              name,
+        skill:             skill,
+        isPresent:         false, // starts absent — tap to check in
+        lastWaitStartTime: now.subtract(Duration(seconds: offsetSecs)),
+      );
+    }).toList();
+
     s.players.addAll(newPlayers);
-    s.waitingRoom.addAll(newPlayers);
+    // Only present players join the queue
+    s.waitingRoom.addAll(newPlayers.where((p) => p.isPresent));
     notifyListeners();
     await _db.savePlayers(newPlayers, sessionId);
+  }
+
+  /// Toggle a player's presence (check-in / mark absent).
+  /// Absent players are removed from the waiting room but kept
+  /// in the session roster. Present players re-join the queue.
+  Future<void> togglePlayerPresence({
+    required String sessionId,
+    required String playerId,
+  }) async {
+    final s = getSession(sessionId);
+    if (s == null) return;
+    try {
+      final p = s.players.firstWhere((p) => p.id == playerId);
+      p.isPresent = !p.isPresent;
+
+      if (p.isPresent) {
+        // Returning — reset wait time and add to queue
+        p.resetWaitTime();
+        if (!s.waitingRoom.any((x) => x.id == p.id) &&
+            !s.activeCourts.any((c) => c.allPlayers.any((x) => x.id == p.id))) {
+          s.waitingRoom.add(p);
+        }
+      } else {
+        // Leaving — remove from queue (keep stats, keep in session)
+        s.waitingRoom.removeWhere((x) => x.id == p.id);
+      }
+    } catch (_) { return; }
+    notifyListeners();
+    await _db.savePlayers(s.players, sessionId);
+  }
+
+  Future<void> updatePlayer({
+    required String sessionId,
+    required String playerId,
+    required String name,
+    required SkillLevel skill,
+  }) async {
+    final s = getSession(sessionId);
+    if (s == null) return;
+    try {
+      final p = s.players.firstWhere((p) => p.id == playerId);
+      p.name  = name;
+      p.skill = skill;
+      // Also update in waitingRoom (same object ref, but be safe)
+      final inQueue = s.waitingRoom.firstWhere(
+          (x) => x.id == playerId, orElse: () => p);
+      inQueue.name  = name;
+      inQueue.skill = skill;
+    } catch (_) { return; }
+    notifyListeners();
+    await _db.savePlayers(s.players, sessionId);
   }
 
   Future<void> removePlayerFromSession({
@@ -221,7 +286,7 @@ class QueueService extends ChangeNotifier {
   Future<void> setPreferredPartner({
     required String sessionId,
     required String playerId,
-    required String? partnerId, 
+    required String? partnerId,
   }) async {
     final s = getSession(sessionId);
     if (s == null) return;
@@ -265,8 +330,7 @@ class QueueService extends ChangeNotifier {
     final s = getSession(sessionId);
     if (s == null) return;
     _haptic();
-    
-    // Ensure index alignment with current list length
+
     final nextIndex = s.activeCourts.length;
     s.activeCourts.add(Court(
       index: nextIndex,
@@ -319,63 +383,61 @@ class QueueService extends ChangeNotifier {
 
   // ── Matchmaking ────────────────────────────────────────────
 
-  bool fillCourt({
-    required String sessionId,
-    int courtIndex = -1,
-    CourtType? courtType,
-  }) {
+  bool fillCourt({required String sessionId, int courtIndex = -1}) {
     final s = getSession(sessionId);
     if (s == null) return false;
 
-    int targetIndex = courtIndex;
-    if (targetIndex == -1) {
-      // Find first empty slot or append
-      final emptyIdx = s.activeCourts.indexWhere(
-          (c) => c.teamA.isEmpty && c.teamB.isEmpty);
-      if (emptyIdx != -1) {
-        targetIndex = emptyIdx;
-      } else {
-        targetIndex = s.activeCourts.length; 
-      }
+    int targetIdx = courtIndex == -1
+        ? s.activeCourts.indexWhere((c) => c.teamA.isEmpty && c.teamB.isEmpty)
+        : courtIndex;
+
+    // No empty court exists yet — auto-create one so Fill Court always works.
+    if (targetIdx == -1) {
+      targetIdx = s.activeCourts.length;
+      s.activeCourts.add(Court(
+        index: targetIdx,
+        teamA: [],
+        teamB: [],
+        type:  s.defaultCourtType,
+      ));
     }
 
-    CourtType type;
-    if (targetIndex < s.activeCourts.length) {
-      type = s.activeCourts[targetIndex].type;
-    } else {
-      type = courtType ?? s.defaultCourtType;
-    }
-
+    final type   = s.activeCourts[targetIdx].type;
     final needed = type == CourtType.singles ? 2 : 4;
+
     if (s.waitingRoom.length < needed) return false;
 
     _haptic();
-    final result   = _engine.findBestMatch(s.waitingRoom, needed);
-    final selected = result.selectedPlayers;
 
-    // Remove from queue
+    // Pass the full waiting room to the engine. The engine scores every
+    // player and enforces the priority-window rule internally — preferred
+    // partners are only paired together when both are already in the
+    // natural top-[needed] by wait time, so no queue-jumping occurs.
+    final result   = _engine.findBestMatch(s.waitingRoom, needed);
+    var   selected = result.selectedPlayers;
+
+    // Safety fallback: if the engine somehow returns too few players,
+    // just take the longest-waiting ones directly.
+    if (selected.length < needed) {
+      s.waitingRoom.sort(
+          (a, b) => a.lastWaitStartTime.compareTo(b.lastWaitStartTime));
+      selected = s.waitingRoom.take(needed).toList();
+    }
+
     for (final p in selected) {
       s.waitingRoom.removeWhere((x) => x.id == p.id);
     }
 
     final teams = _assignTeams(selected, s.teamMode, type);
-    final court = Court(
-      index: targetIndex,
+    s.activeCourts[targetIdx] = Court(
+      index: targetIdx,
       teamA: teams[0],
       teamB: teams[1],
       type:  type,
     );
 
-    // Update active list
-    if (targetIndex >= s.activeCourts.length) {
-      s.activeCourts.add(court);
-    } else {
-      s.activeCourts[targetIndex] = court;
-    }
-
     _engine.recordMatch(selected);
     notifyListeners();
-    _db.updateSession(s);
     return true;
   }
 
@@ -431,8 +493,8 @@ class QueueService extends ChangeNotifier {
   }) {
     final s = getSession(sessionId);
     if (s == null || courtIndex >= s.activeCourts.length) return;
-    final court  = s.activeCourts[courtIndex];
-    final list   = team == 'A' ? court.teamA : court.teamB;
+    final court = s.activeCourts[courtIndex];
+    final list  = team == 'A' ? court.teamA : court.teamB;
     if (slotIndex >= list.length) return;
     final p = list.removeAt(slotIndex);
     if (!s.waitingRoom.any((x) => x.id == p.id)) {
@@ -523,6 +585,53 @@ class QueueService extends ChangeNotifier {
     _db.updateSession(s);
   }
 
+  /// Substitute a player on court with one from the waiting room (or just
+  /// send the on-court player back to the queue if [inPlayerId] is null).
+  void substitutePlayer({
+    required String sessionId,
+    required int    courtIndex,
+    required String outPlayerId,
+    String?         inPlayerId,
+  }) {
+    final s = getSession(sessionId);
+    if (s == null || courtIndex >= s.activeCourts.length) return;
+    final court = s.activeCourts[courtIndex];
+
+    // Find which team/slot the outgoing player is in.
+    final inA   = court.teamA.indexWhere((p) => p.id == outPlayerId);
+    final inB   = court.teamB.indexWhere((p) => p.id == outPlayerId);
+    if (inA == -1 && inB == -1) return;
+
+    final onTeamA = inA != -1;
+    final slot    = onTeamA ? inA : inB;
+    final outPlayer = onTeamA ? court.teamA[slot] : court.teamB[slot];
+
+    // Return outgoing player to queue.
+    outPlayer.resetWaitTime();
+    if (!s.waitingRoom.any((x) => x.id == outPlayer.id)) {
+      s.waitingRoom.add(outPlayer);
+    }
+
+    if (inPlayerId == null) {
+      // Just remove from court — leave the slot empty.
+      if (onTeamA) court.teamA.removeAt(slot);
+      else         court.teamB.removeAt(slot);
+    } else {
+      // Swap with waiting-room player.
+      Player? incoming;
+      try { incoming = s.waitingRoom.firstWhere((p) => p.id == inPlayerId); }
+      catch (_) { return; }
+
+      s.waitingRoom.removeWhere((p) => p.id == inPlayerId);
+      if (onTeamA) court.teamA[slot] = incoming;
+      else         court.teamB[slot] = incoming;
+    }
+
+    _haptic();
+    notifyListeners();
+    _db.updateSession(s);
+  }
+
   // ── Team assignment ────────────────────────────────────────
 
   List<List<Player>> _assignTeams(
@@ -531,9 +640,9 @@ class QueueService extends ChangeNotifier {
       return [[players[0]], [players[1]]];
     }
 
-    final paired    = <Player>[];
-    final unpaired  = <Player>[];
-    final usedIds   = <String>{};
+    final paired   = <Player>[];
+    final unpaired = <Player>[];
+    final usedIds  = <String>{};
 
     for (final p in players) {
       if (usedIds.contains(p.id)) continue;

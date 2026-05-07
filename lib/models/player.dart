@@ -8,8 +8,8 @@ enum CourtType { singles, doubles }
 
 class Player {
   final String id;
-  final String name;
-  final SkillLevel skill;
+  String name;
+  SkillLevel skill;
   int gamesPlayed;
   int wins;
   int losses;

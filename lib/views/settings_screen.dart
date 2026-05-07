@@ -3,11 +3,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/settings_service.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 const _gold = Color(0xFFD4AF37);
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+
+  Future<PackageInfo> _getPackageInfo() async {
+    return await PackageInfo.fromPlatform();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -156,15 +161,26 @@ class SettingsScreen extends StatelessWidget {
           ),
 
           _Section('ABOUT'),
-          _Card(isDark: isDark,
-            child: _Row(
-              icon: Icons.info_outline,
-              title: 'Aero QMS',
-              subtitle: 'Version 1.0.0',
-              trailing: const SizedBox(),
-            ),
-          ),
-          const SizedBox(height: 40),
+        // FIX START: Wrap the About card in a FutureBuilder
+        FutureBuilder<PackageInfo>(
+          future: PackageInfo.fromPlatform(),
+          builder: (context, snapshot) {
+            final version = snapshot.data?.version ?? '...';
+            final build = snapshot.data?.buildNumber ?? '';
+            
+            return _Card(
+              isDark: isDark,
+              child: _Row(
+                icon: Icons.info_outline,
+                title: 'Aero QMS',
+                subtitle: "Version $version ($build)",
+                trailing: const SizedBox(),
+              ),
+            );
+          },
+        ),
+        // FIX END
+        const SizedBox(height: 40),
         ],
       ),
     );

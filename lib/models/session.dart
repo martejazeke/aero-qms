@@ -6,7 +6,7 @@ class Session {
   final String id;
   String name;
   final DateTime date;
-  final int courtCount;
+  int courtCount;
   bool isActive;
   bool isEnded;
   TeamAssignmentMode teamMode;

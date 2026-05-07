@@ -3,7 +3,7 @@ description: "A new Flutter project."
 
 publish_to: 'none'
 
-version: 1.4.1+4
+version: 1.5.0+6
 
 environment:
   sdk: ^3.11.5
@@ -17,6 +17,7 @@ dependencies:
   google_fonts: ^8.0.2
   shared_preferences: ^2.2.3
   provider: ^6.1.2 
+  package_info_plus: ^10.1.0
 
 dev_dependencies:
   flutter_test:
@@ -30,10 +31,18 @@ flutter:
 
   assets:
     - assets/images/header.png
+    - assets/images/logo_icon.png
+    - assets/images/logo_text_dark.png
+    - assets/images/logo_text_dark@2x.png
+    - assets/images/logo_text_dark@3x.png
+    - assets/images/logo_text_light.png
+    - assets/images/logo_text_light@2x.png
+    - assets/images/logo_text_light@3x.png
+
 
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/images/logo.png"
+  image_path: "assets/images/logo_icon.png"
   adaptive_icon_background: "#FAFAFA"
-  adaptive_icon_foreground: "assets/images/logo.png"
+  adaptive_icon_foreground: "assets/images/logo_icon.png"
