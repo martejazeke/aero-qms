@@ -119,6 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
     DateTime selDate = DateTime.now();
     int courtCount = settings.defaultCourts;
     String teamMode = settings.defaultTeamMode;
+    String courtType = settings.defaultCourtType;
 
     showModalBottomSheet(
       context: context,
@@ -129,6 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
         initialDate: selDate,
         initialCourtCount: courtCount,
         initialTeamMode: teamMode,
+        initialCourtType: courtType,
         onConfirm: (name, date, courts, mode, courtType) {
           final tm = TeamAssignmentMode.values.byName(mode);
           final ct = courtType == 'singles'
@@ -554,6 +556,7 @@ class _CreateSessionSheet extends StatefulWidget {
   final DateTime initialDate;
   final int initialCourtCount;
   final String initialTeamMode;
+  final String initialCourtType;
   final void Function(String, DateTime, int, String, String) onConfirm;
 
   const _CreateSessionSheet({
@@ -561,6 +564,7 @@ class _CreateSessionSheet extends StatefulWidget {
     required this.initialDate,
     required this.initialCourtCount,
     required this.initialTeamMode,
+    required this.initialCourtType,
     required this.onConfirm,
   });
   @override
@@ -571,7 +575,7 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
   late DateTime _date;
   late int _courts;
   late String _teamMode;
-  String _courtType = 'doubles';
+  late String _courtType;
 
   @override
   void initState() {
@@ -579,6 +583,7 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
     _date = widget.initialDate;
     _courts = widget.initialCourtCount;
     _teamMode = widget.initialTeamMode;
+    _courtType = widget.initialCourtType;
   }
 
   @override

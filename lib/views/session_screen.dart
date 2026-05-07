@@ -156,11 +156,14 @@ class _SessionScreenState extends State<SessionScreen> {
               onPressed: () {
                 final queue = context.read<QueueService>();
                 final session = queue.getSession(widget.sessionId);
+                final activeCourts = session?.activeCourts ?? [];
+                final courtCount = session?.courtCount ?? 0;
+                // Either there's a real empty court, or there are unfilled placeholder slots
                 final hasEmptyCourt =
-                    session?.activeCourts.any(
+                    activeCourts.any(
                       (c) => c.teamA.isEmpty && c.teamB.isEmpty,
-                    ) ??
-                    false;
+                    ) ||
+                    activeCourts.length < courtCount;
                 final enoughPlayers = (session?.waitingRoom.length ?? 0) >= 4;
 
                 if (!enoughPlayers) {
@@ -1250,9 +1253,12 @@ class _CourtCardState extends State<_CourtCard> {
   bool _editMode = false;
   String? _selectedForSwap;
 
-  bool get _isFull =>
-      (widget.court?.teamA.length ?? 0) == 2 &&
-      (widget.court?.teamB.length ?? 0) == 2;
+  bool get _isFull {
+    final court = widget.court;
+    if (court == null) return false;
+    final perTeam = court.type == CourtType.singles ? 1 : 2;
+    return court.teamA.length == perTeam && court.teamB.length == perTeam;
+  }
 
   bool get _isEmpty =>
       widget.court == null ||
