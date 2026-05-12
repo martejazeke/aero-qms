@@ -1,10 +1,10 @@
 // lib/views/home_screen.dart
 
+import 'package:aero/views/session_summary_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/player.dart';
 import '../models/session.dart';
-import '../models/player.dart';
 import '../services/queue_service.dart';
 import '../services/settings_service.dart';
 import 'session_screen.dart';
@@ -94,7 +94,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
                     itemCount: sessions.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
                     itemBuilder: (ctx, i) =>
                         _SessionCard(session: sessions[i], isDark: isDark),
                   ),
@@ -215,13 +216,13 @@ class _SessionCard extends StatelessWidget {
             color: session.isEnded
                 ? const Color(0xFFE2E8F0)
                 : isToday
-                ? _gold.withOpacity(0.4)
+                ? _gold.withValues(alpha: 0.4)
                 : const Color(0xFFE2E8F0),
             width: isToday && !session.isEnded ? 1.5 : 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -281,6 +282,43 @@ class _SessionCard extends StatelessWidget {
                 ],
               ],
             ),
+            if (session.isEnded) ...[
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => SessionSummaryScreen(sessionId: session.id),
+                  ),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _gold.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _gold.withValues(alpha: 0.3)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bar_chart_rounded, size: 14, color: _gold),
+                      SizedBox(width: 6),
+                      Text(
+                        'View Summary',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _gold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -360,6 +398,12 @@ class _SessionCard extends StatelessWidget {
             onPressed: () {
               context.read<QueueService>().endSession(session.id);
               Navigator.pop(ctx);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SessionSummaryScreen(sessionId: session.id),
+                ),
+              );
             },
             child: const Text(
               'End',
@@ -436,7 +480,7 @@ class _Pill extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
     decoration: BoxDecoration(
-      color: color.withOpacity(0.1),
+      color: color.withValues(alpha: 0.1),
       borderRadius: BorderRadius.circular(20),
     ),
     child: Text(
@@ -517,7 +561,7 @@ class _EmptyState extends StatelessWidget {
           width: 72,
           height: 72,
           decoration: BoxDecoration(
-            color: _gold.withOpacity(0.08),
+            color: _gold.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Icon(
@@ -577,6 +621,25 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
   late String _teamMode;
   late String _courtType;
 
+  String _formatDate(DateTime d) {
+    const mo = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return '${wd[d.weekday - 1]}, ${mo[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -598,293 +661,285 @@ class _CreateSessionSheetState extends State<_CreateSessionSheet> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE2E8F0),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const Text(
-              'New Session',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF111827),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            const _SheetLabel('SESSION NAME'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: widget.nameController,
-              autofocus: true,
-              decoration: _inputDeco('e.g. Friday Night Session'),
-            ),
-            const SizedBox(height: 20),
-
-            const _SheetLabel('DATE'),
-            const SizedBox(height: 8),
-            GestureDetector(
-              onTap: () async {
-                final p = await showDatePicker(
-                  context: context,
-                  initialDate: _date,
-                  firstDate: DateTime.now().subtract(const Duration(days: 1)),
-                  lastDate: DateTime.now().add(const Duration(days: 365)),
-                  builder: (ctx, child) => Theme(
-                    data: Theme.of(ctx).copyWith(
-                      colorScheme: const ColorScheme.light(primary: _gold),
-                    ),
-                    child: child!,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                );
-                if (p != null) setState(() => _date = p);
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.calendar_today_outlined,
-                      size: 16,
-                      color: Color(0xFF64748B),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      _formatDate(_date),
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Color(0xFF111827),
-                      ),
-                    ),
-                  ],
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
+              const Text(
+                'New Session',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF111827),
+                ),
+              ),
+              const SizedBox(height: 24),
 
-            const _SheetLabel('NUMBER OF COURTS'),
-            const SizedBox(height: 8),
-            Row(
-              children: List.generate(
-                6,
-                (i) => GestureDetector(
-                  onTap: () => setState(() => _courts = i + 1),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    width: 44,
-                    height: 44,
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      color: _courts == i + 1 ? _gold : const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(10),
+              const _SheetLabel('SESSION NAME'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: widget.nameController,
+                autofocus: true,
+                decoration: _inputDeco('e.g. Friday Night Session'),
+              ),
+              const SizedBox(height: 20),
+
+              const _SheetLabel('DATE'),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () async {
+                  final p = await showDatePicker(
+                    context: context,
+                    initialDate: _date,
+                    firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                    lastDate: DateTime.now().add(const Duration(days: 365)),
+                    builder: (ctx, child) => Theme(
+                      data: Theme.of(ctx).copyWith(
+                        colorScheme: const ColorScheme.light(primary: _gold),
+                      ),
+                      child: child!,
                     ),
-                    child: Center(
-                      child: Text(
-                        '${i + 1}',
-                        style: TextStyle(
+                  );
+                  if (p != null) setState(() => _date = p);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.calendar_today_outlined,
+                        size: 16,
+                        color: Color(0xFF64748B),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        _formatDate(_date),
+                        style: const TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: _courts == i + 1
-                              ? Colors.white
-                              : const Color(0xFF64748B),
+                          color: Color(0xFF111827),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-            const _SheetLabel('COURT TYPE'),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _courtType = 'singles'),
+              const _SheetLabel('NUMBER OF COURTS'),
+              const SizedBox(height: 8),
+              Row(
+                children: List.generate(
+                  6,
+                  (i) => GestureDetector(
+                    onTap: () => setState(() => _courts = i + 1),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 150),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      width: 44,
+                      height: 44,
+                      margin: const EdgeInsets.only(right: 8),
                       decoration: BoxDecoration(
-                        color: _courtType == 'singles'
-                            ? _gold.withOpacity(0.1)
+                        color: _courts == i + 1
+                            ? _gold
                             : const Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _courtType == 'singles'
-                              ? _gold
-                              : Colors.transparent,
-                          width: 1.5,
-                        ),
                       ),
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.person_outline,
-                            size: 20,
-                            color: _courtType == 'singles'
-                                ? _gold
+                      child: Center(
+                        child: Text(
+                          '${i + 1}',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: _courts == i + 1
+                                ? Colors.white
                                 : const Color(0xFF64748B),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Singles',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              const _SheetLabel('COURT TYPE'),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _courtType = 'singles'),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _courtType == 'singles'
+                              ? _gold.withValues(alpha: 0.1)
+                              : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: _courtType == 'singles'
+                                ? _gold
+                                : Colors.transparent,
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.person_outline,
+                              size: 20,
                               color: _courtType == 'singles'
                                   ? _gold
                                   : const Color(0xFF64748B),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 4),
+                            Text(
+                              'Singles',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _courtType == 'singles'
+                                    ? _gold
+                                    : const Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _courtType = 'doubles'),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _courtType == 'doubles'
-                            ? _gold.withOpacity(0.1)
-                            : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _courtType = 'doubles'),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
                           color: _courtType == 'doubles'
-                              ? _gold
-                              : Colors.transparent,
-                          width: 1.5,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.people_outline,
-                            size: 20,
+                              ? _gold.withValues(alpha: 0.1)
+                              : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
                             color: _courtType == 'doubles'
                                 ? _gold
-                                : const Color(0xFF64748B),
+                                : Colors.transparent,
+                            width: 1.5,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Doubles',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.people_outline,
+                              size: 20,
                               color: _courtType == 'doubles'
                                   ? _gold
                                   : const Color(0xFF64748B),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 4),
+                            Text(
+                              'Doubles',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _courtType == 'doubles'
+                                    ? _gold
+                                    : const Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            const _SheetLabel('TEAM MODE'),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _ModeChip(
-                  'balanced',
-                  'Balanced',
-                  _teamMode,
-                  (v) => setState(() => _teamMode = v),
-                ),
-                const SizedBox(width: 8),
-                _ModeChip(
-                  'random',
-                  'Random',
-                  _teamMode,
-                  (v) => setState(() => _teamMode = v),
-                ),
-                const SizedBox(width: 8),
-                _ModeChip(
-                  'perLevel',
-                  'Per Level',
-                  _teamMode,
-                  (v) => setState(() => _teamMode = v),
-                ),
-              ],
-            ),
-            const SizedBox(height: 28),
+                ],
+              ),
+              const SizedBox(height: 20),
 
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  final name = widget.nameController.text.trim();
-                  if (name.isEmpty) return;
-                  widget.onConfirm(name, _date, _courts, _teamMode, _courtType);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _gold,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+              const _SheetLabel('TEAM MODE'),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _ModeChip(
+                    'balanced',
+                    'Balanced',
+                    _teamMode,
+                    (v) => setState(() => _teamMode = v),
                   ),
-                  elevation: 0,
-                ),
-                child: const Text(
-                  'Create Session',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  const SizedBox(width: 8),
+                  _ModeChip(
+                    'random',
+                    'Random',
+                    _teamMode,
+                    (v) => setState(() => _teamMode = v),
+                  ),
+                  const SizedBox(width: 8),
+                  _ModeChip(
+                    'perLevel',
+                    'Per Level',
+                    _teamMode,
+                    (v) => setState(() => _teamMode = v),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 28),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    final name = widget.nameController.text.trim();
+                    if (name.isEmpty) return;
+                    widget.onConfirm(
+                      name,
+                      _date,
+                      _courts,
+                      _teamMode,
+                      _courtType,
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _gold,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Create Session',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ), // SingleChildScrollView
+      ),
     );
-  }
-
-  String _formatDate(DateTime d) {
-    const mo = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return '${wd[d.weekday - 1]}, ${mo[d.month - 1]} ${d.day}, ${d.year}';
   }
 }
 
@@ -902,7 +957,7 @@ class _ModeChip extends StatelessWidget {
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: sel ? _gold.withOpacity(0.1) : const Color(0xFFF1F5F9),
+            color: sel ? _gold.withValues(alpha: 0.1) : const Color(0xFFF1F5F9),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: sel ? _gold : Colors.transparent,

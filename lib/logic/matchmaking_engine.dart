@@ -4,10 +4,10 @@ import 'dart:math';
 import '../models/player.dart';
 
 class MatchmakingEngine {
-  static const double kWaitWeight          = 0.70;
-  static const double kGamesWeight         = 0.20;
-  static const double kFairnessWeight      = 0.10;
-  static const int    kWaitToleranceSeconds = 30;
+  static const double kWaitWeight = 0.70;
+  static const double kGamesWeight = 0.20;
+  static const double kFairnessWeight = 0.10;
+  static const int kWaitToleranceSeconds = 30;
 
   Set<String> _lastMatchIds = {};
 
@@ -17,21 +17,15 @@ class MatchmakingEngine {
 
   /// Main entry point.
   /// [playersNeeded] is 2 for singles, 4 for doubles.
-  /// Preferred-partner pairs are only honoured when BOTH partners
-  /// are already inside the natural top-[playersNeeded] priority window,
-  /// so they cannot jump the queue just because a preference exists.
-  MatchResult findBestMatch(
-    List<Player> waitingRoom,
-    int playersNeeded,
-  ) {
+  /// For doubles, a preferred partner in the priority window brings their
+  /// partner into the eligible window so the pair is selected together.
+  MatchResult findBestMatch(List<Player> waitingRoom, int playersNeeded) {
     if (waitingRoom.isEmpty) {
       return const MatchResult(selectedPlayers: [], rankedQueue: []);
     }
     if (waitingRoom.length <= playersNeeded) {
-      final scores = waitingRoom
-          .map((p) => _scorePlayer(p, waitingRoom))
-          .toList()
-        ..sort();
+      final scores =
+          waitingRoom.map((p) => _scorePlayer(p, waitingRoom)).toList()..sort();
       return MatchResult(
         selectedPlayers: scores.map((s) => s.player).toList(),
         rankedQueue: scores,
@@ -39,9 +33,7 @@ class MatchmakingEngine {
     }
 
     // Score everyone
-    final scored = waitingRoom
-        .map((p) => _scorePlayer(p, waitingRoom))
-        .toList()
+    final scored = waitingRoom.map((p) => _scorePlayer(p, waitingRoom)).toList()
       ..sort();
 
     if (playersNeeded == 4) {
@@ -54,56 +46,54 @@ class MatchmakingEngine {
   // ── Doubles selection ─────────────────────────────────────
 
   MatchResult _selectDoubles(
-      List<PlayerScore> scored, List<Player> waitingRoom, int playersNeeded) {
+    List<PlayerScore> scored,
+    List<Player> waitingRoom,
+    int playersNeeded,
+  ) {
     final selected = <Player>[];
-    final usedIds  = <String>{};
-    final pairs    = <List<Player>>[];
+    final usedIds = <String>{};
 
-    // Only players ranked in the natural top [playersNeeded] slots are
-    // eligible to have their partner preference honoured this round.
-    // This prevents a preferred pair from cutting in front of people
-    // who have been waiting longer — while still letting the pair play
-    // together every single match once they've both earned their spot.
-    final priorityIds =
-        scored.take(playersNeeded).map((ps) => ps.player.id).toSet();
+    // Expand priority window for partners with score gaps
+    final priorityIds = scored
+        .take(playersNeeded)
+        .map((ps) => ps.player.id)
+        .toSet();
+    final expandedIds = Set<String>.from(priorityIds);
+    for (final ps in scored.take(playersNeeded)) {
+      final p = ps.player;
+      if (p.preferredPartnerId == null) continue;
+      if (waitingRoom.any((x) => x.id == p.preferredPartnerId)) {
+        expandedIds.add(p.preferredPartnerId!);
+      }
+    }
 
-    // Pass 1: find partner pairs where BOTH members are inside the
-    // priority window AND both are present in the waiting room.
+    // Add all eligible preferred pairs within the window before filling
+    // individual slots, so a second pair is not split by the filler pass.
     for (final ps in scored) {
+      if (selected.length + 2 > playersNeeded) break;
+
       final p = ps.player;
       if (usedIds.contains(p.id)) continue;
       if (p.preferredPartnerId == null) continue;
+      if (!expandedIds.contains(p.id)) continue;
+      if (!expandedIds.contains(p.preferredPartnerId)) continue;
 
-      // Both must be in the natural top-N — no queue jumping allowed.
-      if (!priorityIds.contains(p.id)) continue;
-      if (!priorityIds.contains(p.preferredPartnerId)) continue;
+      final partner = waitingRoom
+          .where((x) => x.id == p.preferredPartnerId && !usedIds.contains(x.id))
+          .firstOrNull;
 
-      final partnerInRoom = waitingRoom
-          .where((x) =>
-              x.id == p.preferredPartnerId && !usedIds.contains(x.id))
-          .toList();
-
-      if (partnerInRoom.isNotEmpty) {
-        pairs.add([p, partnerInRoom.first]);
-        usedIds.addAll([p.id, partnerInRoom.first.id]);
-        if (pairs.length == 2) break; // two pairs fills a doubles court
+      if (partner != null) {
+        selected.addAll([p, partner]);
+        usedIds.addAll([p.id, partner.id]);
       }
     }
 
-    // Add pairs first (up to 2 pairs = 4 players)
-    for (final pair in pairs) {
-      selected.addAll(pair);
-      if (selected.length >= 4) break;
-    }
-
-    // Pass 2: fill any remaining slots with the next highest-scored
-    // players who haven't been chosen yet.
+    // Fill remaining slots with next highest-scored players
     for (final ps in scored) {
-      if (selected.length >= 4) break;
-      if (!usedIds.contains(ps.player.id) &&
-          !selected.any((x) => x.id == ps.player.id)) {
-        selected.add(ps.player);
-      }
+      if (selected.length >= playersNeeded) break;
+      if (usedIds.contains(ps.player.id)) continue;
+      selected.add(ps.player);
+      usedIds.add(ps.player.id);
     }
 
     return MatchResult(selectedPlayers: selected, rankedQueue: scored);
@@ -119,11 +109,11 @@ class MatchmakingEngine {
   // ── Fair selection (anti-repeat) ──────────────────────────
 
   List<Player> _selectFair(List<PlayerScore> scored, int needed) {
-    final fresh    = scored
+    final fresh = scored
         .where((ps) => !_lastMatchIds.contains(ps.player.id))
         .toList();
     final repeated = scored
-        .where((ps) =>  _lastMatchIds.contains(ps.player.id))
+        .where((ps) => _lastMatchIds.contains(ps.player.id))
         .toList();
 
     final mustInclude = <PlayerScore>[];
@@ -132,15 +122,14 @@ class MatchmakingEngine {
           .map((ps) => ps.waitDuration.inSeconds)
           .reduce(max);
       for (final ps in fresh) {
-        if (ps.waitDuration.inSeconds >
-            longestRepeat + kWaitToleranceSeconds) {
+        if (ps.waitDuration.inSeconds > longestRepeat + kWaitToleranceSeconds) {
           mustInclude.add(ps);
         }
       }
     }
 
     final selected = <Player>[];
-    final mustIds  = mustInclude.map((ps) => ps.player.id).toSet();
+    final mustIds = mustInclude.map((ps) => ps.player.id).toSet();
 
     for (final ps in mustInclude) {
       if (selected.length >= needed) break;
@@ -160,35 +149,35 @@ class MatchmakingEngine {
   // ── Scoring ───────────────────────────────────────────────
 
   PlayerScore _scorePlayer(Player player, List<Player> room) {
-    final now        = DateTime.now();
-    final maxWait    = _maxWait(room, now);
+    final now = DateTime.now();
+    final maxWait = _maxWait(room, now);
     final playerWait = now
         .difference(player.lastWaitStartTime)
         .inSeconds
         .toDouble();
-    final waitScore  = maxWait > 0
+    final waitScore = maxWait > 0
         ? (playerWait / maxWait).clamp(0.0, 1.0)
         : 0.0;
 
-    final maxGames   = _maxGames(room);
+    final maxGames = _maxGames(room);
     final gamesScore = maxGames > 0
         ? (1.0 - player.gamesPlayed / maxGames)
         : 1.0;
 
-    final fairnessScore =
-        _lastMatchIds.contains(player.id) ? 0.0 : 1.0;
+    final fairnessScore = _lastMatchIds.contains(player.id) ? 0.0 : 1.0;
 
-    final score = (waitScore     * kWaitWeight) +
-                  (gamesScore    * kGamesWeight) +
-                  (fairnessScore * kFairnessWeight);
+    final score =
+        (waitScore * kWaitWeight) +
+        (gamesScore * kGamesWeight) +
+        (fairnessScore * kFairnessWeight);
 
     return PlayerScore(
-      player:        player,
-      score:         score,
-      waitScore:     waitScore,
-      gamesScore:    gamesScore,
+      player: player,
+      score: score,
+      waitScore: waitScore,
+      gamesScore: gamesScore,
       fairnessScore: fairnessScore,
-      waitDuration:  Duration(seconds: playerWait.toInt()),
+      waitDuration: Duration(seconds: playerWait.toInt()),
     );
   }
 

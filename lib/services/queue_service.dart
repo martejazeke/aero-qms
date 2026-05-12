@@ -18,6 +18,7 @@ class MatchRecord {
   final List<String> teamBNames;
   final String winnerTeam;
   final CourtType courtType;
+  final int? durationSeconds;
 
   MatchRecord({
     required this.sessionId,
@@ -25,49 +26,97 @@ class MatchRecord {
     required this.teamANames,
     required this.teamBNames,
     required this.winnerTeam,
+    required this.durationSeconds,
     this.courtType = CourtType.doubles,
   });
 
   Map<String, dynamic> toJson() => {
-    'sessionId':  sessionId,
-    'playedAt':   playedAt.toIso8601String(),
+    'sessionId': sessionId,
+    'playedAt': playedAt.toIso8601String(),
     'teamANames': teamANames,
     'teamBNames': teamBNames,
     'winnerTeam': winnerTeam,
-    'courtType':  courtType.name,
+    'courtType': courtType.name,
+    'durationSeconds': durationSeconds,
   };
 
   factory MatchRecord.fromJson(Map<String, dynamic> j) => MatchRecord(
-    sessionId:  j['sessionId'] as String,
-    playedAt:   DateTime.parse(j['playedAt'] as String),
+    sessionId: j['sessionId'] as String,
+    playedAt: DateTime.parse(j['playedAt'] as String),
     teamANames: List<String>.from(j['teamANames'] as List),
     teamBNames: List<String>.from(j['teamBNames'] as List),
     winnerTeam: j['winnerTeam'] as String,
-    courtType:  CourtType.values.byName(
-        j['courtType'] as String? ?? 'doubles'),
+    durationSeconds: j['durationSeconds'] as int?,
+    courtType: CourtType.values.byName(j['courtType'] as String? ?? 'doubles'),
   );
+}
+
+class SessionSummary {
+  final String sessionName;
+  final DateTime sessionDate;
+  final int totalMatches;
+  final int totalPlayers;
+  final int totalSeconds;
+  final int avgMatchSecs;
+  final List<Player> mostWins;
+  final List<Player> bestWinRate;
+  final List<Player> mostGames;
+  final List<Player> longestStreak;
+  final String? bestPartnerA;
+  final String? bestPartnerB;
+  final int bestPairWins;
+  final List<Player> allPlayers;
+
+  const SessionSummary({
+    required this.sessionName,
+    required this.sessionDate,
+    required this.totalMatches,
+    required this.totalPlayers,
+    required this.totalSeconds,
+    required this.avgMatchSecs,
+    required this.mostWins,
+    required this.bestWinRate,
+    required this.mostGames,
+    required this.longestStreak,
+    required this.bestPartnerA,
+    required this.bestPartnerB,
+    required this.bestPairWins,
+    required this.allPlayers,
+  });
+
+  String get totalTimeFormatted {
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    if (h > 0) return '${h}h ${m}m';
+    return '${m}m';
+  }
+
+  String get avgTimeFormatted {
+    final m = avgMatchSecs ~/ 60;
+    final s = avgMatchSecs % 60;
+    return '${m}m ${s}s';
+  }
 }
 
 // ── QueueService ──────────────────────────────────────────────
 
 class QueueService extends ChangeNotifier {
-  final MatchmakingEngine _engine   = MatchmakingEngine();
-  final DatabaseService   _db       = DatabaseService();
-  SettingsService?        _settings;
+  final MatchmakingEngine _engine = MatchmakingEngine();
+  final DatabaseService _db = DatabaseService();
+  SettingsService? _settings;
 
-  final List<Session>     _sessions = [];
-  final List<MatchRecord> _history  = [];
+  final List<Session> _sessions = [];
+  final List<MatchRecord> _history = [];
 
   bool _loading = true;
-  bool get loading  => _loading;
+  bool get loading => _loading;
 
-  List<Session>     get sessions         => List.unmodifiable(_sessions);
-  List<Session>     get activeSessions   =>
+  List<Session> get sessions => List.unmodifiable(_sessions);
+  List<Session> get activeSessions =>
       _sessions.where((s) => !s.isEnded).toList();
-  List<Session>     get archivedSessions =>
+  List<Session> get archivedSessions =>
       _sessions.where((s) => s.isEnded).toList();
-  List<MatchRecord> get matchHistory     =>
-      List.unmodifiable(_history);
+  List<MatchRecord> get matchHistory => List.unmodifiable(_history);
 
   void attachSettings(SettingsService s) => _settings = s;
 
@@ -82,17 +131,24 @@ class QueueService extends ChangeNotifier {
   Future<void> loadFromDatabase() async {
     _loading = true;
     notifyListeners();
-    final loaded  = await _db.loadSessions();
+    final loaded = await _db.loadSessions();
     final history = await _db.loadMatchHistory();
-    _sessions ..clear() ..addAll(loaded);
-    _history  ..clear() ..addAll(history);
+    _sessions
+      ..clear()
+      ..addAll(loaded);
+    _history
+      ..clear()
+      ..addAll(history);
     _loading = false;
     notifyListeners();
   }
 
   Session? getSession(String id) {
-    try { return _sessions.firstWhere((s) => s.id == id); }
-    catch (_) { return null; }
+    try {
+      return _sessions.firstWhere((s) => s.id == id);
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── Session management ─────────────────────────────────────
@@ -102,17 +158,17 @@ class QueueService extends ChangeNotifier {
     required DateTime date,
     int courtCount = 2,
     TeamAssignmentMode teamMode = TeamAssignmentMode.balanced,
-    CourtType defaultCourtType  = CourtType.doubles,
+    CourtType defaultCourtType = CourtType.doubles,
   }) async {
     _haptic();
     final session = Session(
-      id:               DateTime.now().millisecondsSinceEpoch.toString(),
-      name:             name,
-      date:             date,
-      courtCount:       courtCount,
-      isActive:         true,
-      isEnded:          false,
-      teamMode:         teamMode,
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: name,
+      date: date,
+      courtCount: courtCount,
+      isActive: true,
+      isEnded: false,
+      teamMode: teamMode,
       defaultCourtType: defaultCourtType,
     );
     _sessions.insert(0, session);
@@ -124,9 +180,120 @@ class QueueService extends ChangeNotifier {
     final s = getSession(sessionId);
     if (s == null) return;
     s.isActive = false;
-    s.isEnded  = true;
+    s.isEnded = true;
     notifyListeners();
     await _db.endSession(sessionId);
+  }
+
+  /// Builds a summary of a session for the summary screen.
+  SessionSummary buildSessionSummary(String sessionId) {
+    final s = getSession(sessionId);
+    final matches = _history.where((r) => r.sessionId == sessionId).toList();
+    final players = s?.players ?? [];
+
+    // Total court time
+    final totalSecs = matches
+        .where((r) => r.durationSeconds != null)
+        .fold<int>(0, (sum, r) => sum + r.durationSeconds!);
+
+    final avgSecs = matches.isEmpty
+        ? 0
+        : matches
+                  .where((r) => r.durationSeconds != null)
+                  .fold<int>(0, (sum, r) => sum + (r.durationSeconds ?? 0)) ~/
+              matches.where((r) => r.durationSeconds != null).length;
+
+    // Per-player awards (min 1 game to qualify)
+    final eligible = players.where((p) => p.gamesPlayed > 0).toList();
+
+    // Sort all eligible players by wins desc, then gamesPlayed desc as tiebreaker
+    final byWins = [...eligible]
+      ..sort(
+        (a, b) => b.wins != a.wins
+            ? b.wins.compareTo(a.wins)
+            : b.gamesPlayed.compareTo(a.gamesPlayed),
+      );
+
+    final byWinRate = eligible.where((p) => p.gamesPlayed >= 3).toList()
+      ..sort(
+        (a, b) => b.winRate != a.winRate
+            ? b.winRate.compareTo(a.winRate)
+            : b.gamesPlayed.compareTo(a.gamesPlayed),
+      );
+
+    final byGames = [...eligible]
+      ..sort((a, b) => b.gamesPlayed.compareTo(a.gamesPlayed));
+
+    final byStreak = eligible.where((p) => p.currentStreak > 0).toList()
+      ..sort((a, b) => b.currentStreak.compareTo(a.currentStreak));
+
+    final topWins = byWins.isNotEmpty ? byWins.first.wins : 0;
+    final topRate = byWinRate.isNotEmpty ? byWinRate.first.winRate : 0.0;
+    final topGames = byGames.isNotEmpty ? byGames.first.gamesPlayed : 0;
+    final topStreak = byStreak.isNotEmpty ? byStreak.first.currentStreak : 0;
+
+    final mostWins = byWins.where((p) => p.wins == topWins).toList();
+    final bestWinRate = byWinRate.where((p) => p.winRate == topRate).toList();
+    final mostGames = byGames.where((p) => p.gamesPlayed == topGames).toList();
+    final longestStreak = byStreak
+        .where((p) => p.currentStreak == topStreak)
+        .toList();
+
+    // Best partnership — find pair with most wins together from match history
+    String? partnerA, partnerB;
+    int bestPairWins = 0;
+
+    for (final match in matches) {
+      final winners = match.winnerTeam == 'A'
+          ? match.teamANames
+          : match.teamBNames;
+
+      // Only doubles matches have pairs
+      if (winners.length < 2) continue;
+
+      // For each pair in the winning team
+      for (int i = 0; i < winners.length; i++) {
+        for (int j = i + 1; j < winners.length; j++) {
+          final nameA = winners[i];
+          final nameB = winners[j];
+
+          // Count total wins for this pair across all matches
+          int pairWins = 0;
+          for (final m in matches) {
+            final w = m.winnerTeam == 'A' ? m.teamANames : m.teamBNames;
+            if (w.contains(nameA) && w.contains(nameB)) pairWins++;
+          }
+
+          if (pairWins > bestPairWins) {
+            bestPairWins = pairWins;
+            partnerA = nameA;
+            partnerB = nameB;
+          }
+        }
+      }
+    }
+
+    return SessionSummary(
+      sessionName: s?.name ?? '',
+      sessionDate: s?.date ?? DateTime.now(),
+      totalMatches: matches.length,
+      totalPlayers: players.where((p) => p.isPresent).length,
+      totalSeconds: totalSecs,
+      avgMatchSecs: avgSecs,
+      mostWins: mostWins,
+      bestWinRate: bestWinRate,
+      mostGames: mostGames,
+      longestStreak: longestStreak,
+      bestPartnerA: partnerA,
+      bestPartnerB: partnerB,
+      bestPairWins: bestPairWins,
+      allPlayers: [...eligible]
+        ..sort(
+          (a, b) => b.wins != a.wins
+              ? b.wins.compareTo(a.wins)
+              : b.winRate.compareTo(a.winRate),
+        ),
+    );
   }
 
   Future<void> deleteSession(String sessionId) async {
@@ -135,8 +302,7 @@ class QueueService extends ChangeNotifier {
     await _db.deleteSession(sessionId);
   }
 
-  Future<void> updateTeamMode(
-      String sessionId, TeamAssignmentMode mode) async {
+  Future<void> updateTeamMode(String sessionId, TeamAssignmentMode mode) async {
     final s = getSession(sessionId);
     if (s == null) return;
     s.teamMode = mode;
@@ -144,11 +310,30 @@ class QueueService extends ChangeNotifier {
     await _db.updateSession(s);
   }
 
-  Future<void> updateDefaultCourtType(
-      String sessionId, CourtType type) async {
+  Future<void> updateDefaultCourtType(String sessionId, CourtType type) async {
     final s = getSession(sessionId);
     if (s == null) return;
     s.defaultCourtType = type;
+
+    // Update any existing empty courts to the new type so fillCourt
+    // picks up the correct needed player count immediately.
+    for (final court in s.activeCourts) {
+      if (court.teamA.isEmpty && court.teamB.isEmpty) {
+        court.type = type;
+        // Trim excess players-per-team if switching to singles
+        if (type == CourtType.singles) {
+          if (court.teamA.length > 1) {
+            s.waitingRoom.addAll(court.teamA.sublist(1));
+            court.teamA.removeRange(1, court.teamA.length);
+          }
+          if (court.teamB.length > 1) {
+            s.waitingRoom.addAll(court.teamB.sublist(1));
+            court.teamB.removeRange(1, court.teamB.length);
+          }
+        }
+      }
+    }
+
     notifyListeners();
     await _db.updateSession(s);
   }
@@ -171,12 +356,12 @@ class QueueService extends ChangeNotifier {
     if (s == null) return;
     _haptic();
     final player = Player(
-      id:    _newPlayerId(sessionId),
-      name:  name,
+      id: _newPlayerId(sessionId),
+      name: name,
       skill: skill,
     );
     s.players.add(player);
-    s.waitingRoom.add(player);
+    if (player.isPresent) s.waitingRoom.add(player);
     notifyListeners();
     await _db.savePlayer(player, sessionId);
   }
@@ -199,10 +384,10 @@ class QueueService extends ChangeNotifier {
     final newPlayers = names.map((name) {
       final offsetSecs = rng.nextInt(300); // 0–300 s
       return Player(
-        id:                _newPlayerId(sessionId),
-        name:              name,
-        skill:             skill,
-        isPresent:         false, // starts absent — tap to check in
+        id: _newPlayerId(sessionId),
+        name: name,
+        skill: skill,
+        isPresent: false, // starts absent — tap to check in
         lastWaitStartTime: now.subtract(Duration(seconds: offsetSecs)),
       );
     }).toList();
@@ -228,8 +413,13 @@ class QueueService extends ChangeNotifier {
       p.isPresent = !p.isPresent;
 
       if (p.isPresent) {
-        // Returning — reset wait time and add to queue
-        p.resetWaitTime();
+        // Assign a random wait start so check-in order doesn't bias the queue.
+        // Spread across 0–60 s so the first match feels fair regardless of
+        // which order the organiser taps players in.
+        final rng = Random();
+        p.lastWaitStartTime = DateTime.now().subtract(
+          Duration(seconds: rng.nextInt(60)),
+        );
         if (!s.waitingRoom.any((x) => x.id == p.id) &&
             !s.activeCourts.any((c) => c.allPlayers.any((x) => x.id == p.id))) {
           s.waitingRoom.add(p);
@@ -238,7 +428,9 @@ class QueueService extends ChangeNotifier {
         // Leaving — remove from queue (keep stats, keep in session)
         s.waitingRoom.removeWhere((x) => x.id == p.id);
       }
-    } catch (_) { return; }
+    } catch (_) {
+      return;
+    }
     notifyListeners();
     await _db.savePlayers(s.players, sessionId);
   }
@@ -253,14 +445,18 @@ class QueueService extends ChangeNotifier {
     if (s == null) return;
     try {
       final p = s.players.firstWhere((p) => p.id == playerId);
-      p.name  = name;
+      p.name = name;
       p.skill = skill;
       // Also update in waitingRoom (same object ref, but be safe)
       final inQueue = s.waitingRoom.firstWhere(
-          (x) => x.id == playerId, orElse: () => p);
-      inQueue.name  = name;
+        (x) => x.id == playerId,
+        orElse: () => p,
+      );
+      inQueue.name = name;
       inQueue.skill = skill;
-    } catch (_) { return; }
+    } catch (_) {
+      return;
+    }
     notifyListeners();
     await _db.savePlayers(s.players, sessionId);
   }
@@ -292,13 +488,17 @@ class QueueService extends ChangeNotifier {
     if (s == null) return;
 
     Player? player;
-    try { player = s.players.firstWhere((p) => p.id == playerId); }
-    catch (_) { return; }
+    try {
+      player = s.players.firstWhere((p) => p.id == playerId);
+    } catch (_) {
+      return;
+    }
 
     if (player.preferredPartnerId != null) {
       try {
-        final oldPartner = s.players
-            .firstWhere((p) => p.id == player!.preferredPartnerId);
+        final oldPartner = s.players.firstWhere(
+          (p) => p.id == player!.preferredPartnerId,
+        );
         oldPartner.preferredPartnerId = null;
       } catch (_) {}
     }
@@ -312,7 +512,8 @@ class QueueService extends ChangeNotifier {
             partner.preferredPartnerId != playerId) {
           try {
             final oldP = s.players.firstWhere(
-                (p) => p.id == partner.preferredPartnerId);
+              (p) => p.id == partner.preferredPartnerId,
+            );
             oldP.preferredPartnerId = null;
           } catch (_) {}
         }
@@ -332,12 +533,14 @@ class QueueService extends ChangeNotifier {
     _haptic();
 
     final nextIndex = s.activeCourts.length;
-    s.activeCourts.add(Court(
-      index: nextIndex,
-      teamA: [],
-      teamB: [],
-      type:  type ?? s.defaultCourtType,
-    ));
+    s.activeCourts.add(
+      Court(
+        index: nextIndex,
+        teamA: [],
+        teamB: [],
+        type: type ?? s.defaultCourtType,
+      ),
+    );
     notifyListeners();
     _db.updateSession(s);
   }
@@ -375,7 +578,11 @@ class QueueService extends ChangeNotifier {
     for (var i = 0; i < s.activeCourts.length; i++) {
       final c = s.activeCourts[i];
       s.activeCourts[i] = Court(
-          index: i, teamA: c.teamA, teamB: c.teamB, type: c.type);
+        index: i,
+        teamA: c.teamA,
+        teamB: c.teamB,
+        type: c.type,
+      );
     }
     notifyListeners();
     _db.updateSession(s);
@@ -394,18 +601,16 @@ class QueueService extends ChangeNotifier {
     // No empty court exists yet — auto-create one so Fill Court always works.
     if (targetIdx == -1) {
       targetIdx = s.activeCourts.length;
-      s.activeCourts.add(Court(
-        index: targetIdx,
-        teamA: [],
-        teamB: [],
-        type:  s.defaultCourtType,
-      ));
+      s.activeCourts.add(
+        Court(index: targetIdx, teamA: [], teamB: [], type: s.defaultCourtType),
+      );
     }
 
-    final type   = s.activeCourts[targetIdx].type;
+    final type = s.activeCourts[targetIdx].type;
     final needed = type == CourtType.singles ? 2 : 4;
 
-    if (s.waitingRoom.length < needed) return false;
+    final presentCount = s.waitingRoom.where((p) => p.isPresent).length;
+    if (presentCount < needed) return false;
 
     _haptic();
 
@@ -413,14 +618,17 @@ class QueueService extends ChangeNotifier {
     // player and enforces the priority-window rule internally — preferred
     // partners are only paired together when both are already in the
     // natural top-[needed] by wait time, so no queue-jumping occurs.
-    final result   = _engine.findBestMatch(s.waitingRoom, needed);
-    var   selected = result.selectedPlayers;
+    final presentQueue = s.waitingRoom.where((p) => p.isPresent).toList();
+    s.waitingRoom.removeWhere((p) => !p.isPresent);
+    var result = _engine.findBestMatch(presentQueue, needed);
+    var selected = result.selectedPlayers;
 
     // Safety fallback: if the engine somehow returns too few players,
     // just take the longest-waiting ones directly.
     if (selected.length < needed) {
       s.waitingRoom.sort(
-          (a, b) => a.lastWaitStartTime.compareTo(b.lastWaitStartTime));
+        (a, b) => a.lastWaitStartTime.compareTo(b.lastWaitStartTime),
+      );
       selected = s.waitingRoom.take(needed).toList();
     }
 
@@ -433,12 +641,47 @@ class QueueService extends ChangeNotifier {
       index: targetIdx,
       teamA: teams[0],
       teamB: teams[1],
-      type:  type,
+      type: type,
+      matchStartTime: DateTime.now(),
     );
 
-    _engine.recordMatch(selected);
+    // Record only this court's players so the engine knows who just
+    // played this round — not all on-court players across all courts.
+    _engine.recordMatch(result.selectedPlayers);
     notifyListeners();
     return true;
+  }
+
+  /// Returns the ranked queue and predicted next players without
+  /// modifying any state. Used by the Queue tab for display only.
+  MatchResult previewNextMatch(String sessionId) {
+    final s = getSession(sessionId);
+    if (s == null) {
+      return const MatchResult(selectedPlayers: [], rankedQueue: []);
+    }
+    final presentQueue = s.waitingRoom.where((p) => p.isPresent).toList();
+    if (presentQueue.isEmpty) {
+      return const MatchResult(selectedPlayers: [], rankedQueue: []);
+    }
+    final needed = s.defaultCourtType == CourtType.singles ? 2 : 4;
+    return _engine.findBestMatch(presentQueue, needed);
+  }
+
+  void promoteToFront(String sessionId, String playerId) {
+    final s = getSession(sessionId);
+    if (s == null) return;
+    // Find the earliest wait time in the queue, then go 1 minute earlier
+    final earliest = s.waitingRoom
+        .where((p) => p.isPresent)
+        .map((p) => p.lastWaitStartTime)
+        .fold(DateTime.now(), (a, b) => b.isBefore(a) ? b : a);
+    final p = s.waitingRoom.firstWhere(
+      (x) => x.id == playerId,
+      orElse: () => s.players.firstWhere((x) => x.id == playerId),
+    );
+    p.lastWaitStartTime = earliest.subtract(const Duration(minutes: 1));
+    notifyListeners();
+    _db.updateSession(s);
   }
 
   void assignPlayerToCourt({
@@ -452,17 +695,26 @@ class QueueService extends ChangeNotifier {
     if (s == null) return;
 
     while (s.activeCourts.length <= courtIndex) {
-      s.activeCourts.add(Court(
-        index: s.activeCourts.length, teamA: [], teamB: [],
-        type:  s.defaultCourtType));
+      s.activeCourts.add(
+        Court(
+          index: s.activeCourts.length,
+          teamA: [],
+          teamB: [],
+          type: s.defaultCourtType,
+        ),
+      );
     }
 
     final court = s.activeCourts[courtIndex];
     Player? player;
-    try { player = s.waitingRoom.firstWhere((p) => p.id == playerId); }
-    catch (_) {
-      try { player = s.players.firstWhere((p) => p.id == playerId); }
-      catch (_) { return; }
+    try {
+      player = s.waitingRoom.firstWhere((p) => p.id == playerId);
+    } catch (_) {
+      try {
+        player = s.players.firstWhere((p) => p.id == playerId);
+      } catch (_) {
+        return;
+      }
     }
 
     s.waitingRoom.removeWhere((p) => p.id == playerId);
@@ -494,7 +746,7 @@ class QueueService extends ChangeNotifier {
     final s = getSession(sessionId);
     if (s == null || courtIndex >= s.activeCourts.length) return;
     final court = s.activeCourts[courtIndex];
-    final list  = team == 'A' ? court.teamA : court.teamB;
+    final list = team == 'A' ? court.teamA : court.teamB;
     if (slotIndex >= list.length) return;
     final p = list.removeAt(slotIndex);
     if (!s.waitingRoom.any((x) => x.id == p.id)) {
@@ -514,32 +766,40 @@ class QueueService extends ChangeNotifier {
     if (s == null || courtIndex >= s.activeCourts.length) return;
     _haptic();
 
-    final court   = s.activeCourts[courtIndex];
+    final court = s.activeCourts[courtIndex];
     final winners = teamAWon ? court.teamA : court.teamB;
-    final losers  = teamAWon ? court.teamB : court.teamA;
+    final losers = teamAWon ? court.teamB : court.teamA;
 
     final record = MatchRecord(
-      sessionId:  sessionId,
-      playedAt:   DateTime.now(),
+      sessionId: sessionId,
+      playedAt: DateTime.now(),
       teamANames: court.teamA.map((p) => p.name).toList(),
       teamBNames: court.teamB.map((p) => p.name).toList(),
       winnerTeam: teamAWon ? 'A' : 'B',
-      courtType:  court.type,
+      courtType: court.type,
+      durationSeconds: court.matchStartTime != null
+          ? DateTime.now().difference(court.matchStartTime!).inSeconds
+          : null,
     );
     _history.insert(0, record);
     _db.saveMatchRecord(record);
 
-    final loserIds  = losers.map((p) => p.id).toList();
+    final loserIds = losers.map((p) => p.id).toList();
     final winnerIds = winners.map((p) => p.id).toList();
 
+    final rng = Random();
     for (final p in winners) {
       p.recordWin(opponentIds: loserIds);
-      p.resetWaitTime();
+      p.lastWaitStartTime = DateTime.now().subtract(
+        Duration(seconds: rng.nextInt(30)),
+      );
       s.waitingRoom.add(p);
     }
     for (final p in losers) {
       p.recordLoss(opponentIds: winnerIds);
-      p.resetWaitTime();
+      p.lastWaitStartTime = DateTime.now().subtract(
+        Duration(seconds: rng.nextInt(30)),
+      );
       s.waitingRoom.add(p);
     }
 
@@ -547,7 +807,7 @@ class QueueService extends ChangeNotifier {
       index: courtIndex,
       teamA: [],
       teamB: [],
-      type:  court.type,
+      type: court.type,
     );
 
     notifyListeners();
@@ -563,24 +823,109 @@ class QueueService extends ChangeNotifier {
   }) {
     final s = getSession(sessionId);
     if (s == null || courtIndex >= s.activeCourts.length) return;
-    final court     = s.activeCourts[courtIndex];
-    final inTeamA_A = court.teamA.any((p) => p.id == playerIdA);
-    final inTeamA_B = court.teamA.any((p) => p.id == playerIdB);
-    if (inTeamA_A == inTeamA_B) return;
+    final court = s.activeCourts[courtIndex];
+    final isPlayerAInTeamA = court.teamA.any((p) => p.id == playerIdA);
+    final isPlayerBInTeamA = court.teamA.any((p) => p.id == playerIdB);
+    if (isPlayerAInTeamA == isPlayerBInTeamA) return;
 
-    final idxA = inTeamA_A
+    final idxA = isPlayerAInTeamA
         ? court.teamA.indexWhere((p) => p.id == playerIdA)
         : court.teamB.indexWhere((p) => p.id == playerIdA);
-    final idxB = inTeamA_B
+    final idxB = isPlayerBInTeamA
         ? court.teamA.indexWhere((p) => p.id == playerIdB)
         : court.teamB.indexWhere((p) => p.id == playerIdB);
 
-    final pA = inTeamA_A ? court.teamA[idxA] : court.teamB[idxA];
-    final pB = inTeamA_B ? court.teamA[idxB] : court.teamB[idxB];
+    final pA = isPlayerAInTeamA ? court.teamA[idxA] : court.teamB[idxA];
+    final pB = isPlayerBInTeamA ? court.teamA[idxB] : court.teamB[idxB];
 
-    if (inTeamA_A) { court.teamA[idxA] = pB; court.teamB[idxB] = pA; }
-    else           { court.teamB[idxA] = pB; court.teamA[idxB] = pA; }
+    if (isPlayerAInTeamA) {
+      court.teamA[idxA] = pB;
+      court.teamB[idxB] = pA;
+    } else {
+      court.teamB[idxA] = pB;
+      court.teamA[idxB] = pA;
+    }
 
+    notifyListeners();
+    _db.updateSession(s);
+  }
+
+  /// Swap a player on this court with a player on ANY other court or queue.
+  void swapWithAnywhere({
+    required String sessionId,
+    required int courtIndex,
+    required String outPlayerId, // player currently on courtIndex
+    required String inPlayerId, // player from another court or queue
+  }) {
+    final s = getSession(sessionId);
+    if (s == null) return;
+
+    // Find outgoing player's slot
+    final court = s.activeCourts[courtIndex];
+    final inA = court.teamA.indexWhere((p) => p.id == outPlayerId);
+    final inB = court.teamB.indexWhere((p) => p.id == outPlayerId);
+    if (inA == -1 && inB == -1) return;
+    final onTeamA = inA != -1;
+    final outSlot = onTeamA ? inA : inB;
+
+    // Find incoming player — could be in waiting room or another court
+    Player? incoming;
+    int? inCourtIdx;
+    bool? inTeamA;
+    int? inSlot;
+
+    // Check waiting room first
+    final inQueue = s.waitingRoom.indexWhere((p) => p.id == inPlayerId);
+    if (inQueue != -1) {
+      incoming = s.waitingRoom[inQueue];
+      s.waitingRoom.removeAt(inQueue);
+      // Send outgoing to queue
+      final outPlayer = onTeamA ? court.teamA[outSlot] : court.teamB[outSlot];
+      outPlayer.resetWaitTime();
+      s.waitingRoom.add(outPlayer);
+    } else {
+      // Search other courts
+      for (var ci = 0; ci < s.activeCourts.length; ci++) {
+        if (ci == courtIndex) continue;
+        final c = s.activeCourts[ci];
+        final ia = c.teamA.indexWhere((p) => p.id == inPlayerId);
+        final ib = c.teamB.indexWhere((p) => p.id == inPlayerId);
+        if (ia != -1 || ib != -1) {
+          inCourtIdx = ci;
+          inTeamA = ia != -1;
+          inSlot = inTeamA ? ia : ib;
+          incoming = inTeamA ? c.teamA[inSlot] : c.teamB[inSlot];
+          break;
+        }
+      }
+      if (incoming == null) return;
+      final targetCourtIdx = inCourtIdx;
+      final targetInTeamA = inTeamA;
+      final targetSlot = inSlot;
+      if (targetCourtIdx == null ||
+          targetInTeamA == null ||
+          targetSlot == null) {
+        return;
+      }
+
+      // Swap the outgoing player into the incoming player's slot
+      final outPlayer = onTeamA ? court.teamA[outSlot] : court.teamB[outSlot];
+      final otherCourt = s.activeCourts[targetCourtIdx];
+      if (targetInTeamA) {
+        otherCourt.teamA[targetSlot] = outPlayer;
+      } else {
+        otherCourt.teamB[targetSlot] = outPlayer;
+      }
+    }
+
+    // Place incoming into the slot on this court
+    if (onTeamA) {
+      court.teamA[outSlot] = incoming;
+    } else {
+      court.teamB[outSlot] = incoming;
+    }
+
+    _haptic();
     notifyListeners();
     _db.updateSession(s);
   }
@@ -589,21 +934,21 @@ class QueueService extends ChangeNotifier {
   /// send the on-court player back to the queue if [inPlayerId] is null).
   void substitutePlayer({
     required String sessionId,
-    required int    courtIndex,
+    required int courtIndex,
     required String outPlayerId,
-    String?         inPlayerId,
+    String? inPlayerId,
   }) {
     final s = getSession(sessionId);
     if (s == null || courtIndex >= s.activeCourts.length) return;
     final court = s.activeCourts[courtIndex];
 
     // Find which team/slot the outgoing player is in.
-    final inA   = court.teamA.indexWhere((p) => p.id == outPlayerId);
-    final inB   = court.teamB.indexWhere((p) => p.id == outPlayerId);
+    final inA = court.teamA.indexWhere((p) => p.id == outPlayerId);
+    final inB = court.teamB.indexWhere((p) => p.id == outPlayerId);
     if (inA == -1 && inB == -1) return;
 
     final onTeamA = inA != -1;
-    final slot    = onTeamA ? inA : inB;
+    final slot = onTeamA ? inA : inB;
     final outPlayer = onTeamA ? court.teamA[slot] : court.teamB[slot];
 
     // Return outgoing player to queue.
@@ -614,17 +959,26 @@ class QueueService extends ChangeNotifier {
 
     if (inPlayerId == null) {
       // Just remove from court — leave the slot empty.
-      if (onTeamA) court.teamA.removeAt(slot);
-      else         court.teamB.removeAt(slot);
+      if (onTeamA) {
+        court.teamA.removeAt(slot);
+      } else {
+        court.teamB.removeAt(slot);
+      }
     } else {
       // Swap with waiting-room player.
       Player? incoming;
-      try { incoming = s.waitingRoom.firstWhere((p) => p.id == inPlayerId); }
-      catch (_) { return; }
+      try {
+        incoming = s.waitingRoom.firstWhere((p) => p.id == inPlayerId);
+      } catch (_) {
+        return;
+      }
 
       s.waitingRoom.removeWhere((p) => p.id == inPlayerId);
-      if (onTeamA) court.teamA[slot] = incoming;
-      else         court.teamB[slot] = incoming;
+      if (onTeamA) {
+        court.teamA[slot] = incoming;
+      } else {
+        court.teamB[slot] = incoming;
+      }
     }
 
     _haptic();
@@ -635,37 +989,43 @@ class QueueService extends ChangeNotifier {
   // ── Team assignment ────────────────────────────────────────
 
   List<List<Player>> _assignTeams(
-      List<Player> players, TeamAssignmentMode mode, CourtType type) {
+    List<Player> players,
+    TeamAssignmentMode mode,
+    CourtType type,
+  ) {
     if (type == CourtType.singles) {
-      return [[players[0]], [players[1]]];
+      return [
+        [players[0]],
+        [players[1]],
+      ];
     }
 
-    final paired   = <Player>[];
-    final unpaired = <Player>[];
-    final usedIds  = <String>{};
+    final pairs = <List<Player>>[];
+    final usedIds = <String>{};
 
     for (final p in players) {
       if (usedIds.contains(p.id)) continue;
-      if (p.preferredPartnerId != null) {
-        final partnerIdx = players
-            .indexWhere((x) => x.id == p.preferredPartnerId);
-        if (partnerIdx != -1 && !usedIds.contains(p.preferredPartnerId)) {
-          paired.addAll([p, players[partnerIdx]]);
-          usedIds.addAll([p.id, p.preferredPartnerId!]);
-          continue;
-        }
-      }
-      if (!usedIds.contains(p.id)) {
-        unpaired.add(p);
-        usedIds.add(p.id);
-      }
+
+      final partnerId = p.preferredPartnerId;
+      if (partnerId == null) continue;
+
+      final partnerIdx = players.indexWhere((x) => x.id == partnerId);
+      if (partnerIdx == -1) continue;
+
+      final partner = players[partnerIdx];
+      if (usedIds.contains(partner.id)) continue;
+
+      pairs.add([p, partner]);
+      usedIds.addAll([p.id, partner.id]);
     }
 
-    if (paired.length == 2 && unpaired.length == 2) {
-      return [paired, unpaired];
+    if (pairs.length >= 2) {
+      return [pairs[0], pairs[1]];
     }
-    if (paired.length == 4) {
-      return [[paired[0], paired[1]], [paired[2], paired[3]]];
+
+    if (pairs.length == 1) {
+      final rest = players.where((p) => !usedIds.contains(p.id)).toList();
+      return [pairs[0], rest];
     }
 
     final p = [...players];
@@ -675,11 +1035,16 @@ class QueueService extends ChangeNotifier {
         return [p.sublist(0, 2), p.sublist(2, 4)];
       case TeamAssignmentMode.perLevel:
         p.sort((a, b) => a.skill.index.compareTo(b.skill.index));
-        return [[p[0], p[3]], [p[1], p[2]]];
+        return [
+          [p[0], p[3]],
+          [p[1], p[2]],
+        ];
       case TeamAssignmentMode.balanced:
-      default:
         p.sort((a, b) => b.winRate.compareTo(a.winRate));
-        return [[p[0], p[3]], [p[1], p[2]]];
+        return [
+          [p[0], p[3]],
+          [p[1], p[2]],
+        ];
     }
   }
 }

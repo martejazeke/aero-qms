@@ -1,30 +1,35 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:aero/main.dart';
+import 'package:aero/services/database_service.dart';
+import 'package:aero/services/queue_service.dart';
+import 'package:aero/services/settings_service.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const AeroApp());
+  testWidgets('AeroApp shows empty home screen', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await DatabaseService.init();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    final settings = SettingsService();
+    await settings.init();
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    final queue = QueueService();
+    queue.attachSettings(settings);
+    await queue.loadFromDatabase();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: settings),
+          ChangeNotifierProvider.value(value: queue),
+        ],
+        child: const AeroApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No sessions yet'), findsOneWidget);
+    expect(find.text('New Session'), findsOneWidget);
   });
 }

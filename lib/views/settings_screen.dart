@@ -10,10 +10,6 @@ const _gold = Color(0xFFD4AF37);
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  Future<PackageInfo> _getPackageInfo() async {
-    return await PackageInfo.fromPlatform();
-  }
-
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsService>();
@@ -39,7 +35,7 @@ class SettingsScreen extends StatelessWidget {
               subtitle: isDark ? 'Dark mode' : 'Light mode',
               trailing: Switch(
                 value: isDark,
-                activeColor: _gold,
+                activeThumbColor: _gold,
                 onChanged: (val) => context
                     .read<SettingsService>()
                     .setThemeMode(val ? ThemeMode.dark : ThemeMode.light),
@@ -63,8 +59,9 @@ class SettingsScreen extends StatelessWidget {
                   DropdownMenuItem(value: 'ar', child: Text('العربية')),
                 ],
                 onChanged: (v) {
-                  if (v != null)
+                  if (v != null) {
                     context.read<SettingsService>().setLocale(Locale(v));
+                  }
                 },
               ),
             ),
@@ -85,8 +82,9 @@ class SettingsScreen extends StatelessWidget {
                       DropdownMenuItem(value: i + 1, child: Text('${i + 1}')),
                 ),
                 onChanged: (v) {
-                  if (v != null)
+                  if (v != null) {
                     context.read<SettingsService>().setDefaultCourts(v);
+                  }
                 },
               ),
             ),
@@ -106,8 +104,9 @@ class SettingsScreen extends StatelessWidget {
                   DropdownMenuItem(value: 'singles', child: Text('Singles')),
                 ],
                 onChanged: (v) {
-                  if (v != null)
+                  if (v != null) {
                     context.read<SettingsService>().setDefaultCourtType(v);
+                  }
                 },
               ),
             ),
@@ -126,8 +125,9 @@ class SettingsScreen extends StatelessWidget {
                   DropdownMenuItem(value: 'perLevel', child: Text('Per Level')),
                 ],
                 onChanged: (v) {
-                  if (v != null)
+                  if (v != null) {
                     context.read<SettingsService>().setDefaultTeamMode(v);
+                  }
                 },
               ),
             ),
@@ -142,7 +142,7 @@ class SettingsScreen extends StatelessWidget {
               subtitle: settings.hapticsEnabled ? 'On' : 'Off',
               trailing: Switch(
                 value: settings.hapticsEnabled,
-                activeColor: _gold,
+                activeThumbColor: _gold,
                 onChanged: (v) => context.read<SettingsService>().setHaptics(v),
               ),
             ),
@@ -155,7 +155,7 @@ class SettingsScreen extends StatelessWidget {
               subtitle: settings.soundEnabled ? 'On' : 'Off',
               trailing: Switch(
                 value: settings.soundEnabled,
-                activeColor: _gold,
+                activeThumbColor: _gold,
                 onChanged: (v) => context.read<SettingsService>().setSound(v),
               ),
             ),
@@ -360,7 +360,7 @@ class _Row extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: _gold.withOpacity(0.1),
+              color: _gold.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(9),
             ),
             child: Icon(icon, size: 18, color: _gold),

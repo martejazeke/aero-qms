@@ -84,12 +84,14 @@ class Court {
   List<Player> teamA;
   List<Player> teamB;
   CourtType type; // singles or doubles
+  DateTime? matchStartTime;
 
   Court({
     required this.index,
     required this.teamA,
     required this.teamB,
     this.type = CourtType.doubles,
+    this.matchStartTime,
   });
 
   int get playersPerTeam => type == CourtType.singles ? 1 : 2;

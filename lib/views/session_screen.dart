@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/queue_service.dart';
-import '../services/settings_service.dart';
 import '../models/player.dart';
 import '../models/session.dart';
 
@@ -32,7 +31,30 @@ Color _surfaceDim(BuildContext ctx) =>
     ? const Color(0xFF111827)
     : const Color(0xFFF8FAFC);
 
+String _playerInitial(String name) {
+  final trimmed = name.trim();
+  // If the name is purely numeric, show the full number (up to 3 digits)
+  if (int.tryParse(trimmed) != null) {
+    return trimmed.length > 3 ? trimmed.substring(0, 3) : trimmed;
+  }
+  // Otherwise first letter
+  return trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
+}
+
 // ── Session Screen ────────────────────────────────────────────
+
+int _comparePlayerNames(Player a, Player b) {
+  final aNum = int.tryParse(a.name.trim());
+  final bNum = int.tryParse(b.name.trim());
+
+  if (aNum != null && bNum != null) {
+    return aNum.compareTo(bNum);
+  }
+  if (aNum != null) return -1;
+  if (bNum != null) return 1;
+
+  return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+}
 
 class SessionScreen extends StatefulWidget {
   final String sessionId;
@@ -113,7 +135,7 @@ class _SessionScreenState extends State<SessionScreen> {
               margin: const EdgeInsets.only(right: 12),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFF94A3B8).withOpacity(0.1),
+                color: const Color(0xFF94A3B8).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Text(
@@ -291,7 +313,7 @@ class _SessionScreenState extends State<SessionScreen> {
                           padding: const EdgeInsets.symmetric(vertical: 11),
                           decoration: BoxDecoration(
                             color: sel
-                                ? col.withOpacity(0.12)
+                                ? col.withValues(alpha: 0.12)
                                 : _surfaceDim(context),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
@@ -436,7 +458,7 @@ class _SessionScreenState extends State<SessionScreen> {
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
                             color: sel
-                                ? col.withOpacity(0.12)
+                                ? col.withValues(alpha: 0.12)
                                 : _surfaceDim(context),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
@@ -475,7 +497,7 @@ class _SessionScreenState extends State<SessionScreen> {
                 const SizedBox(height: 8),
                 ValueListenableBuilder<TextEditingValue>(
                   valueListenable: ctrl,
-                  builder: (_, val, __) {
+                  builder: (context, val, child) {
                     final names = _parseNames(val.text);
                     return Text(
                       names.isEmpty
@@ -624,7 +646,7 @@ class _AeroNavBar extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: active
-                          ? _gold.withOpacity(0.1)
+                          ? _gold.withValues(alpha: 0.1)
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(20),
                     ),
@@ -662,9 +684,9 @@ class _QueueTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final session = context.watch<QueueService>().getSession(sessionId);
-    final waiting = session?.waitingRoom ?? [];
-
+    final queue = context.watch<QueueService>();
+    final session = queue.getSession(sessionId);
+    final waiting = List<Player>.from(session?.waitingRoom ?? []);
     if (waiting.isEmpty) {
       return Center(
         child: Column(
@@ -695,77 +717,109 @@ class _QueueTab extends StatelessWidget {
       );
     }
 
+    // Get engine-ranked order and next match preview
+    final preview = isArchived
+        ? MatchResult(selectedPlayers: [], rankedQueue: [])
+        : queue.previewNextMatch(sessionId);
+    final nextIds = preview.selectedPlayers.map((p) => p.id).toSet();
+    final rankedQueue = preview.rankedQueue;
+
+    // Build display list: ranked present players first, then absent players
+    final rankedPresent = rankedQueue.map((ps) => ps.player).toList();
+    final absent = waiting.where((p) => !p.isPresent).toList();
+    final displayList = [...rankedPresent, ...absent];
+
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),
-      itemCount: waiting.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemCount: displayList.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
       itemBuilder: (context, i) {
-        final p = waiting[i];
-        final waitMins = DateTime.now()
-            .difference(p.lastWaitStartTime)
-            .inMinutes;
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: _cardBg(context),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _borderColor(context)),
-          ),
-          child: Row(
+        // Section header before first non-next player
+        if (nextIds.isNotEmpty &&
+            i == nextIds.length &&
+            i < displayList.length) {
+          final p = displayList[i];
+          final waitMins = DateTime.now()
+              .difference(p.lastWaitStartTime)
+              .inMinutes;
+          return Column(
             children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: i == 0 ? _gold.withOpacity(0.1) : _surfaceDim(context),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: Text(
-                    '${i + 1}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: i == 0 ? _gold : _textSecondary(context),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
                   children: [
-                    Text(
-                      p.name,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: _textPrimary(context),
+                    Expanded(child: Divider(color: _borderColor(context))),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Text(
+                        'PLAYERS WAITING',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.3,
+                          color: _textSecondary(context),
+                        ),
                       ),
                     ),
-                    Text(
-                      isArchived
-                          ? '${p.gamesPlayed} games played'
-                          : '$waitMins min wait · ${p.gamesPlayed} games',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _textSecondary(context),
-                      ),
-                    ),
+                    Expanded(child: Divider(color: _borderColor(context))),
                   ],
                 ),
               ),
-              if (p.currentStreak != 0) ...[
-                _StreakBadge(streak: p.currentStreak),
-                const SizedBox(width: 6),
-              ],
-              if (p.preferredPartnerId != null) ...[
-                _PartnerBadge(),
-                const SizedBox(width: 6),
-              ],
-              _SkillBadge(skill: p.skill),
+              GestureDetector(
+                onLongPress: (isArchived || !p.isPresent)
+                    ? null
+                    : () {
+                        context.read<QueueService>().promoteToFront(
+                          sessionId,
+                          p.id,
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${p.name} moved to front of queue'),
+                            behavior: SnackBarBehavior.floating,
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                child: _QueuePlayerTile(
+                  player: p,
+                  rank: i + 1,
+                  isNext: false,
+                  waitMins: waitMins,
+                  isArchived: isArchived,
+                  presentPlayers: rankedPresent,
+                ),
+              ),
             ],
+          );
+        }
+
+        final p = displayList[i];
+        final isNext = nextIds.contains(p.id) && p.isPresent;
+        final waitMins = DateTime.now()
+            .difference(p.lastWaitStartTime)
+            .inMinutes;
+
+        return GestureDetector(
+          onLongPress: (isArchived || !p.isPresent)
+              ? null
+              : () {
+                  context.read<QueueService>().promoteToFront(sessionId, p.id);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('${p.name} moved to front of queue'),
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+          child: _QueuePlayerTile(
+            player: p,
+            rank: i + 1,
+            isNext: isNext,
+            waitMins: waitMins,
+            isArchived: isArchived,
+            presentPlayers: rankedPresent,
           ),
         );
       },
@@ -775,7 +829,7 @@ class _QueueTab extends StatelessWidget {
 
 // ── Tab: Players ──────────────────────────────────────────────
 
-class _PlayersTab extends StatelessWidget {
+class _PlayersTab extends StatefulWidget {
   final String sessionId;
   final bool isArchived;
   final VoidCallback? onAddPlayer;
@@ -786,202 +840,375 @@ class _PlayersTab extends StatelessWidget {
   });
 
   @override
+  State<_PlayersTab> createState() => _PlayersTabState();
+}
+
+class _PlayersTabState extends State<_PlayersTab> {
+  String _search = '';
+  final Set<SkillLevel> _skillFilters = {};
+  String _statusFilter = 'all'; // 'all', 'present', 'absent'
+
+  @override
   Widget build(BuildContext context) {
-    final session = context.watch<QueueService>().getSession(sessionId);
-    final players = session?.players ?? [];
+    final session = context.watch<QueueService>().getSession(widget.sessionId);
+    if (session == null) return const SizedBox();
+    final allPlayers = session.players;
+
+    // Apply filters
+    final players = allPlayers.where((p) {
+      if (p.name.isEmpty) return false;
+      final matchesSearch = _search.isEmpty ||
+          p.name.toLowerCase().contains(_search.toLowerCase());
+      final matchesSkill =
+          _skillFilters.isEmpty || _skillFilters.contains(p.skill);
+      final matchesStatus = _statusFilter == 'all' ||
+          (_statusFilter == 'present' && p.isPresent) ||
+          (_statusFilter == 'absent' && !p.isPresent);
+      return matchesSearch && matchesSkill && matchesStatus;
+    }).toList();
 
     return Stack(
       children: [
-        players.isEmpty
-            ? Center(
-                child: Text(
-                  'No players added yet',
-                  style: TextStyle(color: _textSecondary(context)),
-                ),
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),
-                itemCount: players.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (context, i) {
-                  final p = players[i];
-                  final inQueue = session!.waitingRoom.any((x) => x.id == p.id);
-                  final onCourt = session.activeCourts.any(
-                    (c) => c.allPlayers.any((x) => x.id == p.id),
-                  );
-
-                  final isAbsent = !p.isPresent;
-                  return GestureDetector(
-                    onTap: isArchived
-                        ? () => _openPlayerStats(context, p, players)
-                        : () => _showEditPlayerDialog(
-                            context,
-                            p,
-                            sessionId,
-                            players,
-                          ),
-                    onLongPress: () => _openPlayerStats(context, p, players),
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 200),
-                      opacity: isAbsent ? 0.45 : 1.0,
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: _cardBg(context),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isAbsent
-                                ? _borderColor(context).withOpacity(0.5)
-                                : _borderColor(context),
+        Column(
+          children: [
+            // ── Filter bar ──────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Column(
+                children: [
+                  // Search field
+                  TextField(
+                    onChanged: (v) => setState(() => _search = v),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: _textPrimary(context),
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Search players…',
+                      hintStyle: TextStyle(
+                        fontSize: 13,
+                        color: _textSecondary(context),
+                      ),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        size: 18,
+                        color: _textSecondary(context),
+                      ),
+                      suffixIcon: _search.isNotEmpty
+                          ? GestureDetector(
+                              onTap: () => setState(() => _search = ''),
+                              child: Icon(
+                                Icons.close,
+                                size: 16,
+                                color: _textSecondary(context),
+                              ),
+                            )
+                          : null,
+                      isDense: true,
+                      filled: true,
+                      fillColor: _surfaceDim(context),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Filter chips row
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _FilterChip(
+                          label: 'All',
+                          selected:
+                              _skillFilters.isEmpty && _statusFilter == 'all',
+                          onTap: () => setState(() {
+                            _skillFilters.clear();
+                            _statusFilter = 'all';
+                          }),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Present',
+                          selected: _statusFilter == 'present',
+                          onTap: () => setState(
+                            () => _statusFilter = _statusFilter == 'present'
+                                ? 'all'
+                                : 'present',
                           ),
                         ),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 20,
-                              backgroundColor: isAbsent
-                                  ? _textSecondary(context).withOpacity(0.1)
-                                  : _gold.withOpacity(0.1),
-                              child: Text(
-                                p.name[0].toUpperCase(),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Absent',
+                          selected: _statusFilter == 'absent',
+                          onTap: () => setState(
+                            () => _statusFilter = _statusFilter == 'absent'
+                                ? 'all'
+                                : 'absent',
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Beginner',
+                          selected: _skillFilters.contains(SkillLevel.beginner),
+                          onTap: () => setState(
+                            () => _skillFilters.contains(SkillLevel.beginner)
+                                ? _skillFilters.remove(SkillLevel.beginner)
+                                : _skillFilters.add(SkillLevel.beginner),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Intermediate',
+                          selected: _skillFilters.contains(
+                            SkillLevel.intermediate,
+                          ),
+                          onTap: () => setState(
+                            () =>
+                                _skillFilters.contains(SkillLevel.intermediate)
+                                ? _skillFilters.remove(SkillLevel.intermediate)
+                                : _skillFilters.add(SkillLevel.intermediate),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Advanced',
+                          selected: _skillFilters.contains(SkillLevel.advanced),
+                          onTap: () => setState(
+                            () => _skillFilters.contains(SkillLevel.advanced)
+                                ? _skillFilters.remove(SkillLevel.advanced)
+                                : _skillFilters.add(SkillLevel.advanced),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Player list ─────────────────────────────────
+            Expanded(
+              child: players.isEmpty
+                  ? Center(
+                      child: Text(
+                        allPlayers.isEmpty
+                            ? 'No players added yet'
+                            : 'No players match filters',
+                        style: TextStyle(color: _textSecondary(context)),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                      itemCount: players.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, i) {
+                        final p = players[i];
+                        final inQueue = session!.waitingRoom.any(
+                          (x) => x.id == p.id,
+                        );
+                        final onCourt = session.activeCourts.any(
+                          (c) => c.allPlayers.any((x) => x.id == p.id),
+                        );
+                        final isAbsent = !p.isPresent;
+
+                        return GestureDetector(
+                          onTap: widget.isArchived
+                              ? () => _openPlayerStats(context, p, allPlayers)
+                              : () => _showEditPlayerDialog(
+                                  context,
+                                  p,
+                                  widget.sessionId,
+                                  allPlayers,
+                                ),
+                          onLongPress: () =>
+                              _openPlayerStats(context, p, allPlayers),
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 200),
+                            opacity: isAbsent ? 0.45 : 1.0,
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: _cardBg(context),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
                                   color: isAbsent
-                                      ? _textSecondary(context)
-                                      : _gold,
+                                      ? _borderColor(
+                                          context,
+                                        ).withValues(alpha: 0.5)
+                                      : _borderColor(context),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Row(
                                 children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          p.name,
+                                  CircleAvatar(
+                                    radius: 20,
+                                    backgroundColor: isAbsent
+                                        ? _textSecondary(
+                                            context,
+                                          ).withValues(alpha: 0.1)
+                                        : _gold.withValues(alpha: 0.1),
+                                    child: Text(
+                                      _playerInitial(p.name),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize:
+                                            int.tryParse(p.name.trim()) != null
+                                            ? 10
+                                            : 13,
+                                        color: isAbsent
+                                            ? _textSecondary(context)
+                                            : _gold,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                p.name,
+                                                style: TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: _textPrimary(context),
+                                                ),
+                                              ),
+                                            ),
+                                            if (!widget.isArchived)
+                                              Icon(
+                                                Icons.edit_outlined,
+                                                size: 13,
+                                                color: _textSecondary(
+                                                  context,
+                                                ).withValues(alpha: 0.5),
+                                              ),
+                                          ],
+                                        ),
+                                        Text(
+                                          '${p.wins}W · ${p.losses}L · ${p.winRateDisplay} win rate',
                                           style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                            color: _textPrimary(context),
+                                            fontSize: 12,
+                                            color: _textSecondary(context),
                                           ),
                                         ),
-                                      ),
-                                      if (!isArchived)
-                                        Icon(
-                                          Icons.edit_outlined,
-                                          size: 13,
-                                          color: _textSecondary(
-                                            context,
-                                          ).withOpacity(0.5),
+                                      ],
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      _SkillBadge(skill: p.skill),
+                                      const SizedBox(height: 4),
+                                      if (!widget.isArchived)
+                                        GestureDetector(
+                                          onTap: () => context
+                                              .read<QueueService>()
+                                              .togglePlayerPresence(
+                                                sessionId: widget.sessionId,
+                                                playerId: p.id,
+                                              ),
+                                          child: AnimatedContainer(
+                                            duration: const Duration(
+                                              milliseconds: 150,
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: isAbsent
+                                                  ? _textSecondary(
+                                                      context,
+                                                    ).withValues(alpha: 0.08)
+                                                  : const Color(
+                                                      0xFF22C55E,
+                                                    ).withValues(alpha: 0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  isAbsent
+                                                      ? Icons
+                                                            .person_off_outlined
+                                                      : Icons
+                                                            .check_circle_outline,
+                                                  size: 11,
+                                                  color: isAbsent
+                                                      ? _textSecondary(context)
+                                                      : const Color(0xFF22C55E),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  isAbsent
+                                                      ? 'Absent'
+                                                      : 'Present',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: isAbsent
+                                                        ? _textSecondary(
+                                                            context,
+                                                          )
+                                                        : const Color(
+                                                            0xFF22C55E,
+                                                          ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        )
+                                      else
+                                        _StatusPill(
+                                          inQueue: inQueue,
+                                          onCourt: onCourt,
+                                        ),
+                                      const SizedBox(height: 4),
+                                      if (!widget.isArchived && p.isPresent)
+                                        _PartnerButton(
+                                          player: p,
+                                          allPlayers: allPlayers,
+                                          onSet: (partnerId) => context
+                                              .read<QueueService>()
+                                              .setPreferredPartner(
+                                                sessionId: widget.sessionId,
+                                                playerId: p.id,
+                                                partnerId: partnerId,
+                                              ),
                                         ),
                                     ],
-                                  ),
-                                  Text(
-                                    '${p.wins}W · ${p.losses}L · ${p.winRateDisplay} win rate',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: _textSecondary(context),
-                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                _SkillBadge(skill: p.skill),
-                                const SizedBox(height: 4),
-                                // Presence toggle — most prominent action
-                                if (!isArchived)
-                                  GestureDetector(
-                                    onTap: () => context
-                                        .read<QueueService>()
-                                        .togglePlayerPresence(
-                                          sessionId: sessionId,
-                                          playerId: p.id,
-                                        ),
-                                    child: AnimatedContainer(
-                                      duration: const Duration(
-                                        milliseconds: 150,
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: isAbsent
-                                            ? _textSecondary(
-                                                context,
-                                              ).withOpacity(0.08)
-                                            : const Color(
-                                                0xFF22C55E,
-                                              ).withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            isAbsent
-                                                ? Icons.person_off_outlined
-                                                : Icons.check_circle_outline,
-                                            size: 11,
-                                            color: isAbsent
-                                                ? _textSecondary(context)
-                                                : const Color(0xFF22C55E),
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            isAbsent ? 'Absent' : 'Present',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w700,
-                                              color: isAbsent
-                                                  ? _textSecondary(context)
-                                                  : const Color(0xFF22C55E),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  _StatusPill(
-                                    inQueue: inQueue,
-                                    onCourt: onCourt,
-                                  ),
-                                const SizedBox(height: 4),
-                                if (!isArchived && p.isPresent)
-                                  _PartnerButton(
-                                    player: p,
-                                    allPlayers: players,
-                                    onSet: (partnerId) => context
-                                        .read<QueueService>()
-                                        .setPreferredPartner(
-                                          sessionId: sessionId,
-                                          playerId: p.id,
-                                          partnerId: partnerId,
-                                        ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
-        if (!isArchived && onAddPlayer != null)
+            ),
+          ],
+        ),
+        if (!widget.isArchived && widget.onAddPlayer != null)
           Positioned(
             bottom: 16,
             right: 16,
             child: FloatingActionButton.extended(
               heroTag: 'add_player_fab',
-              onPressed: onAddPlayer,
+              onPressed: widget.onAddPlayer,
               label: const Text('Add Player'),
               icon: const Icon(Icons.person_add_outlined),
               backgroundColor: _gold,
@@ -1018,7 +1245,7 @@ class _RankingsTab extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
       itemCount: players.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
       itemBuilder: (context, i) {
         final p = players[i];
         return GestureDetector(
@@ -1030,7 +1257,7 @@ class _RankingsTab extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: i < 3
-                    ? _podiumColor(i).withOpacity(0.3)
+                    ? _podiumColor(i).withValues(alpha: 0.3)
                     : _borderColor(context),
               ),
             ),
@@ -1118,7 +1345,7 @@ class _CourtsTab extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),
       itemCount: isArchived ? courts.length : totalSlots + 1,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (context, index) => const SizedBox(height: 12),
       itemBuilder: (ctx, i) {
         if (!isArchived && i == totalSlots) {
           return _AddCourtButton(onTap: () => queue.addCourt(sessionId));
@@ -1160,6 +1387,12 @@ class _CourtsTab extends StatelessWidget {
             outPlayerId: outId,
             inPlayerId: inId,
           ),
+          onSwapAnywhere: (outId, inId) => queue.swapWithAnywhere(
+            sessionId: sessionId,
+            courtIndex: i,
+            outPlayerId: outId,
+            inPlayerId: inId,
+          ),
           onAssign: (pid, team, slot) => queue.assignPlayerToCourt(
             sessionId: sessionId,
             courtIndex: i,
@@ -1192,14 +1425,14 @@ class _AddCourtButton extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _gold.withOpacity(0.4), width: 1.5),
+        border: Border.all(color: _gold.withValues(alpha: 0.4), width: 1.5),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
             Icons.add_circle_outline,
-            color: _gold.withOpacity(0.7),
+            color: _gold.withValues(alpha: 0.7),
             size: 20,
           ),
           const SizedBox(width: 8),
@@ -1208,7 +1441,7 @@ class _AddCourtButton extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: _gold.withOpacity(0.8),
+              color: _gold.withValues(alpha: 0.8),
             ),
           ),
         ],
@@ -1226,6 +1459,7 @@ class _CourtCard extends StatefulWidget {
   final void Function(bool) onEnd;
   final void Function(String, String) onSwap;
   final void Function(String outId, String? inId) onSubstitute;
+  final void Function(String outId, String inId) onSwapAnywhere;
   final void Function(String, String, int) onAssign;
   final void Function(String, int) onClear;
   final VoidCallback onRemove;
@@ -1238,6 +1472,7 @@ class _CourtCard extends StatefulWidget {
     required this.onFill,
     required this.onEnd,
     required this.onSwap,
+    required this.onSwapAnywhere,
     required this.onSubstitute,
     required this.onAssign,
     required this.onClear,
@@ -1285,7 +1520,9 @@ class _CourtCardState extends State<_CourtCard> {
   }
 
   Widget _buildHeader(BuildContext context) {
-    final dotColor = _isFull ? _gold : _textSecondary(context).withOpacity(0.4);
+    final dotColor = _isFull
+        ? _gold
+        : _textSecondary(context).withValues(alpha: 0.4);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -1311,6 +1548,8 @@ class _CourtCardState extends State<_CourtCard> {
               letterSpacing: 0.5,
             ),
           ),
+          if (widget.court?.matchStartTime != null && _isFull)
+            _CourtTimer(startTime: widget.court!.matchStartTime!),
           const Spacer(),
           if (_isFull && !widget.isArchived) ...[
             // Delete court in edit mode
@@ -1355,7 +1594,7 @@ class _CourtCardState extends State<_CourtCard> {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: Colors.redAccent.withOpacity(0.4),
+                      color: Colors.redAccent.withValues(alpha: 0.4),
                     ),
                   ),
                   child: const Row(
@@ -1392,7 +1631,7 @@ class _CourtCardState extends State<_CourtCard> {
                 ),
                 decoration: BoxDecoration(
                   color: _editMode
-                      ? _gold.withOpacity(0.1)
+                      ? _gold.withValues(alpha: 0.1)
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
@@ -1461,6 +1700,7 @@ class _CourtCardState extends State<_CourtCard> {
     final courtPl = court?.allPlayers ?? [];
     final available = [...waiting, ...courtPl]
       ..sort((a, b) => a.name.compareTo(b.name));
+    final needed = widget.court?.type == CourtType.singles ? 2 : 4;
 
     Player? slotPlayer(String team, int idx) {
       final list = team == 'A' ? court?.teamA : court?.teamB;
@@ -1478,9 +1718,9 @@ class _CourtCardState extends State<_CourtCard> {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
         decoration: BoxDecoration(
-          color: teamColor.withOpacity(0.05),
+          color: teamColor.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: teamColor.withOpacity(0.2)),
+          border: Border.all(color: teamColor.withValues(alpha: 0.2)),
         ),
         child: DropdownButtonHideUnderline(
           child: DropdownButton<String>(
@@ -1548,7 +1788,7 @@ class _CourtCardState extends State<_CourtCard> {
           ),
           const SizedBox(height: 6),
           dropdownSlot('A', 0),
-          dropdownSlot('A', 1),
+          if (widget.court?.type != CourtType.singles) dropdownSlot('A', 1),
           const SizedBox(height: 8),
           Text(
             'Team B',
@@ -1561,8 +1801,7 @@ class _CourtCardState extends State<_CourtCard> {
           ),
           const SizedBox(height: 6),
           dropdownSlot('B', 0),
-          dropdownSlot('B', 1),
-          const SizedBox(height: 12),
+          if (widget.court?.type != CourtType.singles) dropdownSlot('B', 1),
           // OR divider
           Row(
             children: [
@@ -1585,14 +1824,14 @@ class _CourtCardState extends State<_CourtCard> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: waiting.length >= 4
+              onPressed: waiting.length >= needed
                   ? () => widget.onFill(widget.courtIndex)
                   : null,
               icon: const Icon(Icons.bolt, size: 16),
               label: Text(
-                waiting.length >= 4
+                waiting.length >= needed
                     ? 'Auto-fill from Queue'
-                    : 'Need ${4 - waiting.length} more in queue',
+                    : 'Need ${needed - waiting.length} more in queue',
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: _gold,
@@ -1623,7 +1862,7 @@ class _CourtCardState extends State<_CourtCard> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: _gold.withOpacity(0.05),
+            color: _gold.withValues(alpha: 0.05),
             child: Text(
               _selectedForSwap == null
                   ? 'Tap a player to select, then tap their replacement'
@@ -1645,6 +1884,7 @@ class _CourtCardState extends State<_CourtCard> {
                   isLoser: _winner == false,
                   editMode: _editMode,
                   selectedForSwap: _selectedForSwap,
+                  allSessionPlayers: widget.session.players,
                   onTeamTap: (_editMode || widget.isArchived)
                       ? null
                       : () => setState(
@@ -1693,6 +1933,7 @@ class _CourtCardState extends State<_CourtCard> {
                   isLoser: _winner == true,
                   editMode: _editMode,
                   selectedForSwap: _selectedForSwap,
+                  allSessionPlayers: widget.session.players,
                   onTeamTap: (_editMode || widget.isArchived)
                       ? null
                       : () => setState(
@@ -1708,15 +1949,28 @@ class _CourtCardState extends State<_CourtCard> {
         ),
 
         // ── Substitution picker (edit mode only) ──────────────
-        if (_editMode && !widget.isArchived && waiting.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: _SubstitutePicker(
-              waiting: waiting,
-              enabled: _selectedForSwap != null,
-              onSelected: (inId) => _handleSubstitute(inId),
-            ),
+        if (_editMode && !widget.isArchived) ...[
+          // Build a combined list: queue players + players on other courts
+          Builder(
+            builder: (context) {
+              final allOnOtherCourts = widget.session.activeCourts
+                  .where((c) => c.index != widget.courtIndex)
+                  .expand((c) => c.allPlayers)
+                  .toList();
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: _SubstitutePicker(
+                  waiting: waiting,
+                  otherCourtPlayers: allOnOtherCourts,
+                  courtIndex: widget.courtIndex,
+                  session: widget.session,
+                  enabled: _selectedForSwap != null,
+                  onSelected: (inId) => _handleSubstituteOrSwap(inId),
+                ),
+              );
+            },
           ),
+        ],
 
         if (!widget.isArchived && !_editMode) ...[
           if (_winner == null)
@@ -1775,9 +2029,18 @@ class _CourtCardState extends State<_CourtCard> {
     }
   }
 
-  void _handleSubstitute(String waitingPlayerId) {
+  void _handleSubstituteOrSwap(String inPlayerId) {
     if (_selectedForSwap == null) return;
-    widget.onSubstitute(_selectedForSwap!, waitingPlayerId);
+    // Check if inPlayerId is on another court — if so, use swapWithAnywhere
+    final isOnAnotherCourt = widget.session.activeCourts
+        .where((c) => c.index != widget.courtIndex)
+        .any((c) => c.allPlayers.any((p) => p.id == inPlayerId));
+
+    if (isOnAnotherCourt) {
+      widget.onSwapAnywhere(_selectedForSwap!, inPlayerId);
+    } else {
+      widget.onSubstitute(_selectedForSwap!, inPlayerId);
+    }
     setState(() => _selectedForSwap = null);
   }
 }
@@ -1792,6 +2055,7 @@ class _TeamPanel extends StatelessWidget {
   final String? selectedForSwap;
   final VoidCallback? onTeamTap;
   final void Function(String)? onPlayerTap;
+  final List<Player> allSessionPlayers;
 
   const _TeamPanel({
     required this.label,
@@ -1800,6 +2064,7 @@ class _TeamPanel extends StatelessWidget {
     required this.isWinner,
     required this.isLoser,
     required this.editMode,
+    required this.allSessionPlayers,
     this.selectedForSwap,
     this.onTeamTap,
     this.onPlayerTap,
@@ -1813,7 +2078,9 @@ class _TeamPanel extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isWinner ? color.withOpacity(0.07) : _surfaceDim(context),
+          color: isWinner
+              ? color.withValues(alpha: 0.07)
+              : _surfaceDim(context),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isWinner ? color : _borderColor(context),
@@ -1854,7 +2121,7 @@ class _TeamPanel extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? _gold.withOpacity(0.12)
+                        ? _gold.withValues(alpha: 0.12)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
@@ -1867,12 +2134,14 @@ class _TeamPanel extends StatelessWidget {
                       CircleAvatar(
                         radius: 14,
                         backgroundColor: isSelected
-                            ? _gold.withOpacity(0.2)
-                            : color.withOpacity(isLoser ? 0.05 : 0.14),
+                            ? _gold.withValues(alpha: 0.2)
+                            : color.withValues(alpha: isLoser ? 0.05 : 0.14),
                         child: Text(
-                          p.name[0].toUpperCase(),
+                          _playerInitial(p.name),
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: int.tryParse(p.name.trim()) != null
+                                ? 8
+                                : 11,
                             fontWeight: FontWeight.w700,
                             color: isSelected
                                 ? _gold
@@ -1907,6 +2176,49 @@ class _TeamPanel extends StatelessWidget {
                                 color: _textSecondary(context),
                               ),
                             ),
+                            if (p.preferredPartnerId != null)
+                              Builder(
+                                builder: (context) {
+                                  final partnerName = allSessionPlayers
+                                      .where(
+                                        (x) => x.id == p.preferredPartnerId,
+                                      )
+                                      .map((x) => x.name)
+                                      .firstOrNull;
+                                  if (partnerName == null)
+                                    return const SizedBox();
+                                  final partnerOnSameTeam = players.any(
+                                    (x) => x.id == p.preferredPartnerId,
+                                  );
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        partnerOnSameTeam
+                                            ? Icons.favorite
+                                            : Icons.heart_broken_outlined,
+                                        size: 9,
+                                        color: partnerOnSameTeam
+                                            ? _gold
+                                            : Colors.redAccent,
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        partnerOnSameTeam
+                                            ? 'w/ $partnerName'
+                                            : 'vs $partnerName',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w600,
+                                          color: partnerOnSameTeam
+                                              ? _gold
+                                              : Colors.redAccent,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
                           ],
                         ),
                       ),
@@ -1971,7 +2283,7 @@ class _HistoryTab extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
       itemCount: history.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
       itemBuilder: (context, i) {
         final r = history[i];
         final aWon = r.winnerTeam == 'A';
@@ -2039,7 +2351,7 @@ class _HistoryTab extends StatelessWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: _gold.withOpacity(0.1),
+                    color: _gold.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -2196,7 +2508,7 @@ class _SettingsTab extends StatelessWidget {
               margin: const EdgeInsets.only(bottom: 10),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: sel ? _gold.withOpacity(0.06) : _cardBg(context),
+                color: sel ? _gold.withValues(alpha: 0.06) : _cardBg(context),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: sel ? _gold : _borderColor(context),
@@ -2210,7 +2522,7 @@ class _SettingsTab extends StatelessWidget {
                     height: 40,
                     decoration: BoxDecoration(
                       color: sel
-                          ? _gold.withOpacity(0.1)
+                          ? _gold.withValues(alpha: 0.1)
                           : _surfaceDim(context),
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -2402,7 +2714,7 @@ void _showEditPlayerDialog(
                         padding: const EdgeInsets.symmetric(vertical: 11),
                         decoration: BoxDecoration(
                           color: sel
-                              ? col.withOpacity(0.12)
+                              ? col.withValues(alpha: 0.12)
                               : _surfaceDim(context),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
@@ -2516,7 +2828,7 @@ void _openPlayerStats(
                 children: [
                   CircleAvatar(
                     radius: 24,
-                    backgroundColor: _gold.withOpacity(0.12),
+                    backgroundColor: _gold.withValues(alpha: 0.12),
                     child: Text(
                       player.name[0].toUpperCase(),
                       style: const TextStyle(
@@ -2736,7 +3048,7 @@ class _StreakBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
@@ -2765,7 +3077,7 @@ class _SkillBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
@@ -2795,7 +3107,7 @@ class _StatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
@@ -2870,25 +3182,37 @@ InputDecoration _inputDeco(String hint, BuildContext ctx) => InputDecoration(
 // ── Partner badge ─────────────────────────────────────────────
 
 class _PartnerBadge extends StatelessWidget {
-  const _PartnerBadge();
+  final bool partnerAbsent;
+  const _PartnerBadge({this.partnerAbsent = false});
+
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
     decoration: BoxDecoration(
-      color: const Color(0xFF8B5CF6).withOpacity(0.1),
+      color: const Color(0xFF8B5CF6).withValues(alpha: 0.1),
       borderRadius: BorderRadius.circular(6),
+      border: Border.all(
+        color: partnerAbsent
+            ? Colors.grey.withValues(alpha: 0.3)
+            : _gold.withValues(alpha: 0.3),
+      ),
     ),
-    child: const Row(
+    child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.favorite, size: 9, color: Color(0xFF8B5CF6)),
-        SizedBox(width: 3),
+        Icon(
+          partnerAbsent ? Icons.person_off_outlined : Icons.favorite,
+          size: 9,
+          color: partnerAbsent ? Colors.grey : _gold,
+        ),
+        const SizedBox(width: 3),
         Text(
-          'Pair',
+          partnerAbsent ? 'Partner absent' : 'Paired',
           style: TextStyle(
             fontSize: 9,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF8B5CF6),
+            color: partnerAbsent ? Colors.grey : _gold,
+            letterSpacing: 0.5,
           ),
         ),
       ],
@@ -2927,12 +3251,12 @@ class _PartnerButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
           color: hasPartner
-              ? const Color(0xFF8B5CF6).withOpacity(0.1)
+              ? const Color(0xFF8B5CF6).withValues(alpha: 0.1)
               : _surfaceDim(context),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
             color: hasPartner
-                ? const Color(0xFF8B5CF6).withOpacity(0.3)
+                ? const Color(0xFF8B5CF6).withValues(alpha: 0.3)
                 : _borderColor(context),
           ),
         ),
@@ -2965,7 +3289,7 @@ class _PartnerButton extends StatelessWidget {
 
   void _showPartnerPicker(BuildContext context) {
     final others = allPlayers.where((p) => p.id != player.id).toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+      ..sort(_comparePlayerNames);
 
     showModalBottomSheet(
       context: context,
@@ -3049,11 +3373,14 @@ class _PartnerButton extends StatelessWidget {
                     leading: CircleAvatar(
                       radius: 18,
                       backgroundColor: isCurrentPartner
-                          ? const Color(0xFF8B5CF6).withOpacity(0.15)
+                          ? const Color(0xFF8B5CF6).withValues(alpha: 0.15)
                           : _surfaceDim(context),
                       child: Text(
-                        p.name[0].toUpperCase(),
+                        _playerInitial(p.name),
                         style: TextStyle(
+                          fontSize: int.tryParse(p.name.trim()) != null
+                              ? 10
+                              : 14,
                           fontWeight: FontWeight.w700,
                           color: isCurrentPartner
                               ? const Color(0xFF8B5CF6)
@@ -3130,7 +3457,7 @@ class _TypeChip extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: selected ? _gold.withOpacity(0.08) : _cardBg(context),
+          color: selected ? _gold.withValues(alpha: 0.08) : _cardBg(context),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? _gold : _borderColor(context),
@@ -3166,11 +3493,17 @@ class _SubstitutePicker extends StatefulWidget {
   final List<Player> waiting;
   final bool enabled;
   final void Function(String inId) onSelected;
+  final List<Player> otherCourtPlayers;
+  final int courtIndex;
+  final Session session;
 
   const _SubstitutePicker({
     required this.waiting,
     required this.enabled,
     required this.onSelected,
+    required this.otherCourtPlayers,
+    required this.courtIndex,
+    required this.session,
   });
 
   @override
@@ -3189,7 +3522,15 @@ class _SubstitutePickerState extends State<_SubstitutePicker> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = widget.waiting
+    final filteredQueue = widget.waiting
+        .where(
+          (p) =>
+              _query.isEmpty ||
+              p.name.toLowerCase().contains(_query.toLowerCase()),
+        )
+        .toList();
+
+    final filteredOther = widget.otherCourtPlayers
         .where(
           (p) =>
               _query.isEmpty ||
@@ -3200,11 +3541,13 @@ class _SubstitutePickerState extends State<_SubstitutePicker> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       decoration: BoxDecoration(
-        color: widget.enabled ? _gold.withOpacity(0.04) : _surfaceDim(context),
+        color: widget.enabled
+            ? _gold.withValues(alpha: 0.04)
+            : _surfaceDim(context),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: widget.enabled
-              ? _gold.withOpacity(0.4)
+              ? _gold.withValues(alpha: 0.4)
               : _borderColor(context),
         ),
       ),
@@ -3285,7 +3628,7 @@ class _SubstitutePickerState extends State<_SubstitutePicker> {
             ),
 
             // Player list
-            if (filtered.isEmpty)
+            if (filteredQueue.isEmpty && filteredOther.isEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
                 child: Text(
@@ -3302,9 +3645,25 @@ class _SubstitutePickerState extends State<_SubstitutePicker> {
                 child: ListView.builder(
                   shrinkWrap: true,
                   padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                  itemCount: filtered.length,
+                  itemCount: filteredQueue.length + filteredOther.length,
                   itemBuilder: (context, i) {
-                    final p = filtered[i];
+                    final isOther = i >= filteredQueue.length;
+                    final p = isOther
+                        ? filteredOther[i - filteredQueue.length]
+                        : filteredQueue[i];
+
+                    // Find which court the other player is on
+                    String? courtLabel;
+                    if (isOther) {
+                      for (final c in widget.session.activeCourts) {
+                        if (c.index != widget.courtIndex &&
+                            c.allPlayers.any((x) => x.id == p.id)) {
+                          courtLabel = 'Court ${c.index + 1}';
+                          break;
+                        }
+                      }
+                    }
+
                     final waitMins = DateTime.now()
                         .difference(p.lastWaitStartTime)
                         .inMinutes;
@@ -3319,15 +3678,19 @@ class _SubstitutePickerState extends State<_SubstitutePicker> {
                         decoration: BoxDecoration(
                           color: _cardBg(context),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: _borderColor(context)),
+                          border: Border.all(
+                            color: isOther
+                                ? Colors.orangeAccent.withValues(alpha: 0.4)
+                                : _borderColor(context),
+                          ),
                         ),
                         child: Row(
                           children: [
                             CircleAvatar(
                               radius: 14,
-                              backgroundColor: _gold.withOpacity(0.12),
+                              backgroundColor: _gold.withValues(alpha: 0.12),
                               child: Text(
-                                p.name[0].toUpperCase(),
+                                _playerInitial(p.name),
                                 style: const TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
@@ -3337,22 +3700,36 @@ class _SubstitutePickerState extends State<_SubstitutePicker> {
                             ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: Text(
-                                p.name,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    p.name,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: _textPrimary(context),
+                                    ),
+                                  ),
+                                  if (courtLabel != null)
+                                    Text(
+                                      courtLabel,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.orangeAccent,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            if (!isOther)
+                              Text(
+                                '${waitMins}m',
                                 style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: _textPrimary(context),
+                                  fontSize: 11,
+                                  color: _textSecondary(context),
                                 ),
                               ),
-                            ),
-                            Text(
-                              '${waitMins}m',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: _textSecondary(context),
-                              ),
-                            ),
                             const SizedBox(width: 6),
                             _SkillBadge(skill: p.skill),
                           ],
@@ -3367,4 +3744,238 @@ class _SubstitutePickerState extends State<_SubstitutePicker> {
       ),
     );
   }
+}
+
+// ── Court Timer ───────────────────────────────────────────────
+
+class _CourtTimer extends StatefulWidget {
+  final DateTime startTime;
+  const _CourtTimer({required this.startTime});
+
+  @override
+  State<_CourtTimer> createState() => _CourtTimerState();
+}
+
+class _CourtTimerState extends State<_CourtTimer> {
+  late final Stream<Duration> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = Stream.periodic(
+      const Duration(seconds: 1),
+      (_) => DateTime.now().difference(widget.startTime),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Duration>(
+      stream: _stream,
+      initialData: DateTime.now().difference(widget.startTime),
+      builder: (context, snap) {
+        final d = snap.data ?? Duration.zero;
+        final mins = d.inMinutes.toString().padLeft(2, '0');
+        final secs = (d.inSeconds % 60).toString().padLeft(2, '0');
+        final isLong = d.inMinutes >= 20;
+        return Container(
+          margin: const EdgeInsets.only(left: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            color: isLong
+                ? Colors.redAccent.withValues(alpha: 0.1)
+                : _gold.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.timer_outlined,
+                size: 11,
+                color: isLong ? Colors.redAccent : _gold,
+              ),
+              const SizedBox(width: 3),
+              Text(
+                '$mins:$secs',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: isLong ? Colors.redAccent : _gold,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _QueuePlayerTile extends StatelessWidget {
+  final Player player;
+  final int rank;
+  final bool isNext;
+  final int waitMins;
+  final bool isArchived;
+  final List<Player> presentPlayers;
+
+  const _QueuePlayerTile({
+    required this.player,
+    required this.rank,
+    required this.isNext,
+    required this.waitMins,
+    required this.isArchived,
+    required this.presentPlayers,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = player;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isNext
+            ? _gold.withValues(alpha: 0.06)
+            : p.isPresent
+            ? _cardBg(context)
+            : _surfaceDim(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isNext
+              ? _gold.withValues(alpha: 0.4)
+              : p.isPresent
+              ? _borderColor(context)
+              : _borderColor(context).withValues(alpha: 0.4),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Rank badge
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: isNext
+                  ? _gold.withValues(alpha: 0.15)
+                  : _surfaceDim(context),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: isNext
+                  ? const Icon(Icons.bolt, size: 16, color: _gold)
+                  : Text(
+                      '$rank',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: _textSecondary(context),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  p.name,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: p.isPresent
+                        ? _textPrimary(context)
+                        : _textSecondary(context),
+                  ),
+                ),
+                Text(
+                  !p.isPresent
+                      ? 'Absent'
+                      : isArchived
+                      ? '${p.gamesPlayed} games played'
+                      : '$waitMins min wait · ${p.gamesPlayed} games',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: !p.isPresent
+                        ? _textSecondary(context).withValues(alpha: 0.6)
+                        : _textSecondary(context),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (isNext)
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: _gold.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text(
+                'NEXT',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  color: _gold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+          if (p.currentStreak != 0) ...[
+            _StreakBadge(streak: p.currentStreak),
+            const SizedBox(width: 6),
+          ],
+          if (p.preferredPartnerId != null) ...[
+            _PartnerBadge(
+              partnerAbsent: !presentPlayers.any(
+                (x) => x.id == p.preferredPartnerId,
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+          _SkillBadge(skill: p.skill),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: selected ? _gold.withValues(alpha: 0.12) : _surfaceDim(context),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: selected ? _gold : _borderColor(context),
+          width: selected ? 1.5 : 1,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          color: selected ? _gold : _textSecondary(context),
+        ),
+      ),
+    ),
+  );
 }
