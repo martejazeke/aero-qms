@@ -53,30 +53,14 @@ class MatchmakingEngine {
     final selected = <Player>[];
     final usedIds = <String>{};
 
-    // Expand priority window for partners with score gaps
-    final priorityIds = scored
-        .take(playersNeeded)
-        .map((ps) => ps.player.id)
-        .toSet();
-    final expandedIds = Set<String>.from(priorityIds);
-    for (final ps in scored.take(playersNeeded)) {
-      final p = ps.player;
-      if (p.preferredPartnerId == null) continue;
-      if (waitingRoom.any((x) => x.id == p.preferredPartnerId)) {
-        expandedIds.add(p.preferredPartnerId!);
-      }
-    }
-
-    // Add all eligible preferred pairs within the window before filling
-    // individual slots, so a second pair is not split by the filler pass.
+    // Pass 1: find ALL preferred pairs where both partners are present
+    // in the waiting room. No priority window — pairs are ALWAYS kept
+    // together as long as both are present, regardless of score gap.
     for (final ps in scored) {
       if (selected.length + 2 > playersNeeded) break;
-
       final p = ps.player;
       if (usedIds.contains(p.id)) continue;
       if (p.preferredPartnerId == null) continue;
-      if (!expandedIds.contains(p.id)) continue;
-      if (!expandedIds.contains(p.preferredPartnerId)) continue;
 
       final partner = waitingRoom
           .where((x) => x.id == p.preferredPartnerId && !usedIds.contains(x.id))
@@ -88,7 +72,7 @@ class MatchmakingEngine {
       }
     }
 
-    // Fill remaining slots with next highest-scored players
+    // Pass 2: fill remaining slots with next highest-scored non-paired players
     for (final ps in scored) {
       if (selected.length >= playersNeeded) break;
       if (usedIds.contains(ps.player.id)) continue;
@@ -98,7 +82,6 @@ class MatchmakingEngine {
 
     return MatchResult(selectedPlayers: selected, rankedQueue: scored);
   }
-
   // ── Singles selection ─────────────────────────────────────
 
   MatchResult _selectSingles(List<PlayerScore> scored, int playersNeeded) {

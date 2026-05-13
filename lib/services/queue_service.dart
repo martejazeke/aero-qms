@@ -239,7 +239,7 @@ class QueueService extends ChangeNotifier {
         .where((p) => p.currentStreak == topStreak)
         .toList();
 
-    // Best partnership — find pair with most wins together from match history
+    // Best pair — find pair with most wins together from match history
     String? partnerA, partnerB;
     int bestPairWins = 0;
 
@@ -603,6 +603,15 @@ class QueueService extends ChangeNotifier {
       targetIdx = s.activeCourts.length;
       s.activeCourts.add(
         Court(index: targetIdx, teamA: [], teamB: [], type: s.defaultCourtType),
+      );
+    }
+
+    // Court slot exists in UI but hasn't been created in activeCourts yet
+    // (placeholder slot) — create it now.
+    while (s.activeCourts.length <= targetIdx) {
+      final idx = s.activeCourts.length;
+      s.activeCourts.add(
+        Court(index: idx, teamA: [], teamB: [], type: s.defaultCourtType),
       );
     }
 

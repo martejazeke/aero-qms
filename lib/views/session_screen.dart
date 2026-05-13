@@ -67,21 +67,21 @@ class SessionScreen extends StatefulWidget {
 class _SessionScreenState extends State<SessionScreen> {
   int _currentTab = 0;
 
-  static const _tabs = [
-    'Queue',
-    'Players',
-    'Rankings',
-    'Courts',
-    'History',
-    'Settings',
-  ];
-  static const _icons = [
+  static const _activeTabs = ['Queue', 'Players', 'Rankings', 'Courts', 'History', 'Settings'];
+  static const _activeIcons = [
     Icons.list_alt_outlined,
     Icons.people_outline,
     Icons.leaderboard_outlined,
     Icons.sports_tennis_outlined,
     Icons.history_outlined,
     Icons.tune_outlined,
+  ];
+
+  static const _archivedTabs  = ['Players', 'Rankings', 'History'];
+  static const _archivedIcons = [
+    Icons.people_outline,
+    Icons.leaderboard_outlined,
+    Icons.history_outlined,
   ];
 
   @override
@@ -93,6 +93,15 @@ class _SessionScreenState extends State<SessionScreen> {
     }
 
     final isArchived = session.isEnded;
+    final tabs  = isArchived ? _archivedTabs  : _activeTabs;
+    final icons = isArchived ? _archivedIcons : _activeIcons;
+
+    final maxTab = isArchived ? _archivedTabs.length - 1 : _activeTabs.length - 1;
+    if (_currentTab > maxTab) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        setState(() => _currentTab = 0);
+      });
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -152,25 +161,35 @@ class _SessionScreenState extends State<SessionScreen> {
       ),
       body: IndexedStack(
         index: _currentTab,
-        children: [
-          _QueueTab(sessionId: widget.sessionId, isArchived: isArchived),
-          _PlayersTab(
-            sessionId: widget.sessionId,
-            isArchived: isArchived,
-            onAddPlayer: isArchived
-                ? null
-                : () => _showAddPlayerDialog(context, session.id),
-          ),
-          _RankingsTab(sessionId: widget.sessionId),
-          _CourtsTab(sessionId: widget.sessionId, isArchived: isArchived),
-          _HistoryTab(sessionId: widget.sessionId),
-          _SettingsTab(sessionId: widget.sessionId, isArchived: isArchived),
-        ],
+        children: isArchived
+            ? [
+                _PlayersTab(
+                  sessionId: widget.sessionId,
+                  isArchived: true,
+                  onAddPlayer: null,
+                ),
+                _RankingsTab(sessionId: widget.sessionId),
+                _HistoryTab(sessionId: widget.sessionId),
+              ]
+            : [
+                _QueueTab(sessionId: widget.sessionId, isArchived: false),
+                _PlayersTab(
+                  sessionId: widget.sessionId,
+                  isArchived: false,
+                  onAddPlayer: () =>
+                      _showAddPlayerDialog(context, session.id),
+                ),
+                _RankingsTab(sessionId: widget.sessionId),
+                _CourtsTab(sessionId: widget.sessionId, isArchived: false),
+                _HistoryTab(sessionId: widget.sessionId),
+                _SettingsTab(
+                    sessionId: widget.sessionId, isArchived: false),
+              ],
       ),
       bottomNavigationBar: _AeroNavBar(
         currentIndex: _currentTab,
-        tabs: _tabs,
-        icons: _icons,
+        tabs: tabs,
+        icons: icons,
         onTap: (i) => setState(() => _currentTab = i),
       ),
       floatingActionButton: (!isArchived && _currentTab == 0)
@@ -186,12 +205,15 @@ class _SessionScreenState extends State<SessionScreen> {
                       (c) => c.teamA.isEmpty && c.teamB.isEmpty,
                     ) ||
                     activeCourts.length < courtCount;
-                final enoughPlayers = (session?.waitingRoom.length ?? 0) >= 4;
+                final needed = session?.defaultCourtType == CourtType.singles ? 2 : 4;
+                final enoughPlayers = (session?.waitingRoom
+                        .where((p) => p.isPresent)
+                        .length ?? 0) >= needed;
 
                 if (!enoughPlayers) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Need at least 4 players in the queue'),
+                    SnackBar(
+                      content: Text('Need at least $needed players in the queue'),
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
@@ -724,10 +746,17 @@ class _QueueTab extends StatelessWidget {
     final nextIds = preview.selectedPlayers.map((p) => p.id).toSet();
     final rankedQueue = preview.rankedQueue;
 
-    // Build display list: ranked present players first, then absent players
+    // Build display list — present players ranked by score, but ensure
+    // both members of a selected pair appear in the NEXT group at the top
+    // even if one partner's score ranks them lower.
     final rankedPresent = rankedQueue.map((ps) => ps.player).toList();
-    final absent = waiting.where((p) => !p.isPresent).toList();
-    final displayList = [...rankedPresent, ...absent];
+    final absent        = waiting.where((p) => !p.isPresent).toList();
+
+    // Move any selected (NEXT) players that are ranked below position
+    // playersNeeded to the top so the display matches what will be filled.
+    final nextList    = rankedPresent.where((p) => nextIds.contains(p.id)).toList();
+    final nonNextList = rankedPresent.where((p) => !nextIds.contains(p.id)).toList();
+    final displayList = [...nextList, ...nonNextList, ...absent];
 
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),

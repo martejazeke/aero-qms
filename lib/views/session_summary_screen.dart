@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import '../services/queue_service.dart';
 import '../models/player.dart';
 
@@ -61,7 +60,7 @@ class SessionSummaryScreen extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.share_outlined),
-            onPressed: () => _showShareOptions(context, summary),
+            onPressed: () => _shareAsPdf(context, summary),
           ),
         ],
       ),
@@ -72,110 +71,24 @@ class SessionSummaryScreen extends StatelessWidget {
     );
   }
 
-  void _showShareOptions(BuildContext context, SessionSummary summary) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        margin: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.only(top: 12, bottom: 20),
-              decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const Text(
-              'Share Summary',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _ShareOption(
-                  icon: Icons.image_outlined,
-                  label: 'Share as Image',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _shareAsImage(context, summary);
-                  },
-                ),
-                _ShareOption(
-                  icon: Icons.picture_as_pdf_outlined,
-                  label: 'Share as PDF',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _shareAsPdf(context, summary);
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _shareAsImage(
-    BuildContext context,
-    SessionSummary summary,
-  ) async {
+  Future<void> _shareAsPdf(
+      BuildContext context, SessionSummary summary) async {
     try {
-      final pdfDoc = await _buildPdfDocument(summary);
-      final pdfBytes = await pdfDoc.save();
+      final pdfDoc  = await _buildPdfDocument(summary);
+      final bytes   = await pdfDoc.save();
+      final dir     = await getTemporaryDirectory();
+      final file    = File('${dir.path}/${summary.sessionName}_summary.pdf');
+      await file.writeAsBytes(bytes);
 
-      final page = await Printing.raster(
-        pdfBytes,
-        pages: const [0],
-        dpi: 200,
-      ).first;
-
-      final pngBytes = await page.toPng();
-
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/summary_${summary.sessionName}.png');
-      await file.writeAsBytes(pngBytes);
-
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path)],
-          text: '${summary.sessionName} - Session Summary',
-        ),
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/pdf')],
+        text: '${summary.sessionName} — Session Summary',
       );
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not export image: $e')));
-      }
-    }
-  }
-
-  Future<void> _shareAsPdf(BuildContext context, SessionSummary summary) async {
-    try {
-      final pdfDoc = await _buildPdfDocument(summary);
-      final bytes = await pdfDoc.save();
-
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename: '${summary.sessionName}_summary.pdf',
-      );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not export PDF: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not export PDF: $e')),
+        );
       }
     }
   }
@@ -296,7 +209,7 @@ class SessionSummaryScreen extends StatelessWidget {
             ),
           if (summary.bestPartnerA != null && summary.bestPartnerB != null)
             _pdfAwardRow(
-              'Best Partnership',
+              'Best Pair',
               '${summary.bestPartnerA} & ${summary.bestPartnerB}',
               '${summary.bestPairWins} wins together',
               gold,
@@ -586,7 +499,7 @@ class _SummaryContent extends StatelessWidget {
         if (summary.bestPartnerA != null && summary.bestPartnerB != null)
           _AwardCard(
             emoji: '🤝',
-            title: 'Best Partnership',
+            title: 'Best Pair',
             names: ['${summary.bestPartnerA} & ${summary.bestPartnerB}'],
             subtitle: '${summary.bestPairWins} wins together',
             isDark: isDark,
