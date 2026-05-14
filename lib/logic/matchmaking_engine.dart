@@ -11,6 +11,27 @@ class MatchmakingEngine {
 
   Set<String> _lastMatchIds = {};
 
+  // ── Matchup deduplication ─────────────────────────────────
+  final Set<String> _recentMatchups = {};
+
+  void recordMatchup(List<Player> teamA, List<Player> teamB) {
+    final sig = _matchupSignature(teamA, teamB);
+    _recentMatchups.add(sig);
+    if (_recentMatchups.length > 10) {
+      _recentMatchups.remove(_recentMatchups.first);
+    }
+  }
+
+  bool isRecentMatchup(List<Player> teamA, List<Player> teamB) =>
+      _recentMatchups.contains(_matchupSignature(teamA, teamB));
+
+  String _matchupSignature(List<Player> teamA, List<Player> teamB) {
+    final a = (teamA.map((p) => p.id).toList()..sort()).join(',');
+    final b = (teamB.map((p) => p.id).toList()..sort()).join(',');
+    final parts = [a, b]..sort();
+    return parts.join('|');
+  }
+
   void recordMatch(List<Player> matched) {
     _lastMatchIds = matched.map((p) => p.id).toSet();
   }
@@ -51,33 +72,91 @@ class MatchmakingEngine {
     int playersNeeded,
   ) {
     final selected = <Player>[];
-    final usedIds = <String>{};
+    final usedIds  = <String>{};
 
-    // Pass 1: find ALL preferred pairs where both partners are present
-    // in the waiting room. No priority window — pairs are ALWAYS kept
-    // together as long as both are present, regardless of score gap.
+    // Build a score map for quick lookup
+    final scoreMap = {for (final ps in scored) ps.player.id: ps.score};
+
+    // Separate players into pairs and singles
+    final checkedPairIds = <String>{};
+    final pairs = <({Player p1, Player p2, double combinedScore})>[];
+
     for (final ps in scored) {
-      if (selected.length + 2 > playersNeeded) break;
       final p = ps.player;
-      if (usedIds.contains(p.id)) continue;
+      if (checkedPairIds.contains(p.id)) continue;
       if (p.preferredPartnerId == null) continue;
 
       final partner = waitingRoom
-          .where((x) => x.id == p.preferredPartnerId && !usedIds.contains(x.id))
+          .where((x) => x.id == p.preferredPartnerId)
           .firstOrNull;
 
       if (partner != null) {
-        selected.addAll([p, partner]);
-        usedIds.addAll([p.id, partner.id]);
+        final partnerScore = scoreMap[partner.id] ?? 0.0;
+        // Use the MINIMUM score so the pair only plays when
+        // BOTH have waited long enough — not just one of them
+        final combinedScore = min(ps.score, partnerScore);
+        pairs.add((p1: p, p2: partner, combinedScore: combinedScore));
+        checkedPairIds.addAll([p.id, partner.id]);
       }
     }
 
-    // Pass 2: fill remaining slots with next highest-scored non-paired players
-    for (final ps in scored) {
-      if (selected.length >= playersNeeded) break;
-      if (usedIds.contains(ps.player.id)) continue;
-      selected.add(ps.player);
-      usedIds.add(ps.player.id);
+    // Sort pairs by combined score descending
+    pairs.sort((a, b) => b.combinedScore.compareTo(a.combinedScore));
+
+    // Non-paired players sorted by score
+    final singles = scored
+        .where((ps) => !checkedPairIds.contains(ps.player.id))
+        .toList();
+
+    // Merge pairs and singles into one priority list
+    // A pair competes against individual singles by their combined score
+    // This means a pair only jumps ahead of singles if BOTH partners
+    // have high enough scores
+    int pairIdx   = 0;
+    int singleIdx = 0;
+
+    while (selected.length < playersNeeded) {
+      final hasPair   = pairIdx < pairs.length;
+      final hasSingle = singleIdx < singles.length;
+
+      if (!hasPair && !hasSingle) break;
+
+      // Decide whether to take the next pair or the next single
+      bool takePair = false;
+      if (hasPair && !hasSingle) {
+        takePair = true;
+      } else if (hasSingle && !hasPair) {
+        takePair = false;
+      } else {
+        // Both available — compare scores
+        final pairScore   = pairs[pairIdx].combinedScore;
+        final singleScore = singles[singleIdx].score;
+        // Only take the pair if it would fit (need 2 slots) and scores higher
+        final slotsLeft = playersNeeded - selected.length;
+        takePair = slotsLeft >= 2 && pairScore >= singleScore;
+      }
+
+      if (takePair) {
+        final pair = pairs[pairIdx++];
+        if (usedIds.contains(pair.p1.id) || usedIds.contains(pair.p2.id)) continue;
+
+        // Skip pair if both just played AND enough fresh singles available
+        final bothJustPlayed = _lastMatchIds.contains(pair.p1.id) &&
+            _lastMatchIds.contains(pair.p2.id);
+        final freshSingles = singles
+            .where((ps) => !_lastMatchIds.contains(ps.player.id) &&
+                !usedIds.contains(ps.player.id))
+            .length;
+        if (bothJustPlayed && freshSingles >= playersNeeded) continue;
+
+        selected.addAll([pair.p1, pair.p2]);
+        usedIds.addAll([pair.p1.id, pair.p2.id]);
+      } else {
+        final ps = singles[singleIdx++];
+        if (usedIds.contains(ps.player.id)) continue;
+        selected.add(ps.player);
+        usedIds.add(ps.player.id);
+      }
     }
 
     return MatchResult(selectedPlayers: selected, rankedQueue: scored);
@@ -148,6 +227,8 @@ class MatchmakingEngine {
         : 1.0;
 
     final fairnessScore = _lastMatchIds.contains(player.id) ? 0.0 : 1.0;
+
+    
 
     final score =
         (waitScore * kWaitWeight) +

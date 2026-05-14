@@ -387,7 +387,7 @@ class QueueService extends ChangeNotifier {
         id: _newPlayerId(sessionId),
         name: name,
         skill: skill,
-        isPresent: false, // starts absent — tap to check in
+        isPresent: false, 
         lastWaitStartTime: now.subtract(Duration(seconds: offsetSecs)),
       );
     }).toList();
@@ -645,7 +645,29 @@ class QueueService extends ChangeNotifier {
       s.waitingRoom.removeWhere((x) => x.id == p.id);
     }
 
-    final teams = _assignTeams(selected, s.teamMode, type);
+    var teams = _assignTeams(selected, s.teamMode, type);
+
+    // If this exact matchup happened recently, try swapping one
+    // non-paired player on team B with the next best waiting player
+    if (_engine.isRecentMatchup(teams[0], teams[1]) &&
+        presentQueue.length > needed) {
+      final bench = presentQueue
+          .where((p) => !selected.any((x) => x.id == p.id))
+          .toList();
+      if (bench.isNotEmpty) {
+        final swapIdx = teams[1].indexWhere((p) =>
+            p.preferredPartnerId == null ||
+            !teams[1].any((x) => x.id == p.preferredPartnerId));
+        if (swapIdx != -1) {
+          // Put swapped-out player back in queue, bring bench player in
+          s.waitingRoom.add(teams[1][swapIdx]);
+          teams[1][swapIdx] = bench.first;
+          s.waitingRoom.removeWhere((x) => x.id == bench.first.id);
+        }
+      }
+    }
+
+    _engine.recordMatchup(teams[0], teams[1]);
     s.activeCourts[targetIdx] = Court(
       index: targetIdx,
       teamA: teams[0],
@@ -654,9 +676,8 @@ class QueueService extends ChangeNotifier {
       matchStartTime: DateTime.now(),
     );
 
-    // Record only this court's players so the engine knows who just
-    // played this round — not all on-court players across all courts.
-    _engine.recordMatch(result.selectedPlayers);
+    final allOnCourt = s.activeCourts.expand((c) => c.allPlayers).toList();
+    _engine.recordMatch(allOnCourt);
     notifyListeners();
     return true;
   }

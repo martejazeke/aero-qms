@@ -67,7 +67,14 @@ class SessionScreen extends StatefulWidget {
 class _SessionScreenState extends State<SessionScreen> {
   int _currentTab = 0;
 
-  static const _activeTabs = ['Queue', 'Players', 'Rankings', 'Courts', 'History', 'Settings'];
+  static const _activeTabs = [
+    'Queue',
+    'Players',
+    'Rankings',
+    'Courts',
+    'History',
+    'Settings',
+  ];
   static const _activeIcons = [
     Icons.list_alt_outlined,
     Icons.people_outline,
@@ -77,7 +84,7 @@ class _SessionScreenState extends State<SessionScreen> {
     Icons.tune_outlined,
   ];
 
-  static const _archivedTabs  = ['Players', 'Rankings', 'History'];
+  static const _archivedTabs = ['Players', 'Rankings', 'History'];
   static const _archivedIcons = [
     Icons.people_outline,
     Icons.leaderboard_outlined,
@@ -93,10 +100,12 @@ class _SessionScreenState extends State<SessionScreen> {
     }
 
     final isArchived = session.isEnded;
-    final tabs  = isArchived ? _archivedTabs  : _activeTabs;
+    final tabs = isArchived ? _archivedTabs : _activeTabs;
     final icons = isArchived ? _archivedIcons : _activeIcons;
 
-    final maxTab = isArchived ? _archivedTabs.length - 1 : _activeTabs.length - 1;
+    final maxTab = isArchived
+        ? _archivedTabs.length - 1
+        : _activeTabs.length - 1;
     if (_currentTab > maxTab) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         setState(() => _currentTab = 0);
@@ -176,14 +185,12 @@ class _SessionScreenState extends State<SessionScreen> {
                 _PlayersTab(
                   sessionId: widget.sessionId,
                   isArchived: false,
-                  onAddPlayer: () =>
-                      _showAddPlayerDialog(context, session.id),
+                  onAddPlayer: () => _showAddPlayerDialog(context, session.id),
                 ),
                 _RankingsTab(sessionId: widget.sessionId),
                 _CourtsTab(sessionId: widget.sessionId, isArchived: false),
                 _HistoryTab(sessionId: widget.sessionId),
-                _SettingsTab(
-                    sessionId: widget.sessionId, isArchived: false),
+                _SettingsTab(sessionId: widget.sessionId, isArchived: false),
               ],
       ),
       bottomNavigationBar: _AeroNavBar(
@@ -205,15 +212,20 @@ class _SessionScreenState extends State<SessionScreen> {
                       (c) => c.teamA.isEmpty && c.teamB.isEmpty,
                     ) ||
                     activeCourts.length < courtCount;
-                final needed = session?.defaultCourtType == CourtType.singles ? 2 : 4;
-                final enoughPlayers = (session?.waitingRoom
-                        .where((p) => p.isPresent)
-                        .length ?? 0) >= needed;
+                final needed = session?.defaultCourtType == CourtType.singles
+                    ? 2
+                    : 4;
+                final enoughPlayers =
+                    (session?.waitingRoom.where((p) => p.isPresent).length ??
+                        0) >=
+                    needed;
 
                 if (!enoughPlayers) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Need at least $needed players in the queue'),
+                      content: Text(
+                        'Need at least $needed players in the queue',
+                      ),
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
@@ -750,12 +762,16 @@ class _QueueTab extends StatelessWidget {
     // both members of a selected pair appear in the NEXT group at the top
     // even if one partner's score ranks them lower.
     final rankedPresent = rankedQueue.map((ps) => ps.player).toList();
-    final absent        = waiting.where((p) => !p.isPresent).toList();
+    final absent = waiting.where((p) => !p.isPresent).toList();
 
     // Move any selected (NEXT) players that are ranked below position
     // playersNeeded to the top so the display matches what will be filled.
-    final nextList    = rankedPresent.where((p) => nextIds.contains(p.id)).toList();
-    final nonNextList = rankedPresent.where((p) => !nextIds.contains(p.id)).toList();
+    final nextList = rankedPresent
+        .where((p) => nextIds.contains(p.id))
+        .toList();
+    final nonNextList = rankedPresent
+        .where((p) => !nextIds.contains(p.id))
+        .toList();
     final displayList = [...nextList, ...nonNextList, ...absent];
 
     return ListView.separated(
@@ -886,11 +902,13 @@ class _PlayersTabState extends State<_PlayersTab> {
     // Apply filters
     final players = allPlayers.where((p) {
       if (p.name.isEmpty) return false;
-      final matchesSearch = _search.isEmpty ||
+      final matchesSearch =
+          _search.isEmpty ||
           p.name.toLowerCase().contains(_search.toLowerCase());
       final matchesSkill =
           _skillFilters.isEmpty || _skillFilters.contains(p.skill);
-      final matchesStatus = _statusFilter == 'all' ||
+      final matchesStatus =
+          _statusFilter == 'all' ||
           (_statusFilter == 'present' && p.isPresent) ||
           (_statusFilter == 'absent' && !p.isPresent);
       return matchesSearch && matchesSkill && matchesStatus;
@@ -953,7 +971,7 @@ class _PlayersTabState extends State<_PlayersTab> {
                     child: Row(
                       children: [
                         _FilterChip(
-                          label: 'All',
+                          label: 'All (${allPlayers.length})',
                           selected:
                               _skillFilters.isEmpty && _statusFilter == 'all',
                           onTap: () => setState(() {
@@ -963,7 +981,8 @@ class _PlayersTabState extends State<_PlayersTab> {
                         ),
                         const SizedBox(width: 6),
                         _FilterChip(
-                          label: 'Present',
+                          label:
+                              'Present (${allPlayers.where((p) => p.isPresent).length})',
                           selected: _statusFilter == 'present',
                           onTap: () => setState(
                             () => _statusFilter = _statusFilter == 'present'
@@ -973,7 +992,8 @@ class _PlayersTabState extends State<_PlayersTab> {
                         ),
                         const SizedBox(width: 6),
                         _FilterChip(
-                          label: 'Absent',
+                          label:
+                              'Absent (${allPlayers.where((p) => !p.isPresent).length})',
                           selected: _statusFilter == 'absent',
                           onTap: () => setState(
                             () => _statusFilter = _statusFilter == 'absent'
@@ -983,7 +1003,8 @@ class _PlayersTabState extends State<_PlayersTab> {
                         ),
                         const SizedBox(width: 6),
                         _FilterChip(
-                          label: 'Beginner',
+                          label:
+                              'Beginner (${allPlayers.where((p) => p.skill == SkillLevel.beginner).length})',
                           selected: _skillFilters.contains(SkillLevel.beginner),
                           onTap: () => setState(
                             () => _skillFilters.contains(SkillLevel.beginner)
@@ -993,7 +1014,8 @@ class _PlayersTabState extends State<_PlayersTab> {
                         ),
                         const SizedBox(width: 6),
                         _FilterChip(
-                          label: 'Intermediate',
+                          label:
+                              'Intermediate (${allPlayers.where((p) => p.skill == SkillLevel.intermediate).length})',
                           selected: _skillFilters.contains(
                             SkillLevel.intermediate,
                           ),
@@ -1006,7 +1028,8 @@ class _PlayersTabState extends State<_PlayersTab> {
                         ),
                         const SizedBox(width: 6),
                         _FilterChip(
-                          label: 'Advanced',
+                          label:
+                              'Advanced (${allPlayers.where((p) => p.skill == SkillLevel.advanced).length})',
                           selected: _skillFilters.contains(SkillLevel.advanced),
                           onTap: () => setState(
                             () => _skillFilters.contains(SkillLevel.advanced)

@@ -8,6 +8,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../services/queue_service.dart';
 import '../models/player.dart';
+import 'package:printing/printing.dart';
+
+
 
 const _gold = Color(0xFFD4AF37);
 
@@ -74,15 +77,16 @@ class SessionSummaryScreen extends StatelessWidget {
   Future<void> _shareAsPdf(
       BuildContext context, SessionSummary summary) async {
     try {
-      final pdfDoc  = await _buildPdfDocument(summary);
-      final bytes   = await pdfDoc.save();
-      final dir     = await getTemporaryDirectory();
-      final file    = File('${dir.path}/${summary.sessionName}_summary.pdf');
-      await file.writeAsBytes(bytes);
+      final pdfDoc = await _buildPdfDocument(summary);
+      final bytes  = await pdfDoc.save();
 
-      await Share.shareXFiles(
-        [XFile(file.path, mimeType: 'application/pdf')],
-        text: '${summary.sessionName} — Session Summary',
+      final safeName = summary.sessionName
+          .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+          .trim();
+
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: '${safeName}_summary.pdf',
       );
     } catch (e) {
       if (context.mounted) {
