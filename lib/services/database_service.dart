@@ -168,6 +168,13 @@ class DatabaseService {
     await savePlayers(session.players, session.id);
   }
 
+  Future<void> saveAllMatchHistory(List<MatchRecord> records) async {
+    await _prefs.setString(
+      _historyKey,
+      jsonEncode(records.map((r) => r.toJson()).toList()),
+    );
+  }
+
   Map<String, dynamic> _encodeSession(Session s) => {
     'id': s.id,
     'name': s.name,

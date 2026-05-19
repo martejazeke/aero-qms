@@ -13,13 +13,52 @@ class MatchmakingEngine {
 
   // ── Matchup deduplication ─────────────────────────────────
   final Set<String> _recentMatchups = {};
+ // Tracks recent teammates to avoid same people always playing together
+  final Map<String, Set<String>> _recentPartners = {};
+
+  bool recentlyPlayedTogether(String idA, String idB) =>
+      _recentPartners[idA]?.contains(idB) ?? false;
+
+  int _poolSize = 10;
+
+  void updatePoolSize(int size) {
+    _poolSize = size;
+  }
+
+  void recordPartners(List<Player> teamA, List<Player> teamB) {
+    for (final team in [teamA, teamB]) {
+      for (final p in team) {
+        _recentPartners.putIfAbsent(p.id, () => {});
+        for (final teammate in team) {
+          if (teammate.id == p.id) continue;
+          _recentPartners[p.id]!.add(teammate.id);
+        }
+      }
+    }
+    final memoryLimit = _poolSize <= 12 ? 2
+        : _poolSize <= 20 ? 3
+        : _poolSize <= 30 ? 4
+        : 5;
+    for (final key in _recentPartners.keys) {
+      if (_recentPartners[key]!.length > memoryLimit) {
+        final list = _recentPartners[key]!.toList();
+        _recentPartners[key] =
+            list.sublist(list.length - memoryLimit).toSet();
+      }
+    }
+  }
 
   void recordMatchup(List<Player> teamA, List<Player> teamB) {
     final sig = _matchupSignature(teamA, teamB);
     _recentMatchups.add(sig);
-    if (_recentMatchups.length > 10) {
+    final matchupLimit = _poolSize <= 12 ? 6
+        : _poolSize <= 20 ? 10
+        : _poolSize <= 30 ? 15
+        : 20;
+    if (_recentMatchups.length > matchupLimit) {
       _recentMatchups.remove(_recentMatchups.first);
     }
+    recordPartners(teamA, teamB);
   }
 
   bool isRecentMatchup(List<Player> teamA, List<Player> teamB) =>
@@ -230,10 +269,14 @@ class MatchmakingEngine {
 
     
 
+    final rng   = Random();
+    final noise = rng.nextDouble() * 0.05;
+
     final score =
         (waitScore * kWaitWeight) +
         (gamesScore * kGamesWeight) +
-        (fairnessScore * kFairnessWeight);
+        (fairnessScore * kFairnessWeight) +
+        noise;
 
     return PlayerScore(
       player: player,

@@ -1,6 +1,7 @@
 // lib/services/queue_service.dart
 
 import 'dart:math';
+import 'dart:math' show max;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../models/player.dart';
@@ -628,7 +629,7 @@ class QueueService extends ChangeNotifier {
     // partners are only paired together when both are already in the
     // natural top-[needed] by wait time, so no queue-jumping occurs.
     final presentQueue = s.waitingRoom.where((p) => p.isPresent).toList();
-    s.waitingRoom.removeWhere((p) => !p.isPresent);
+    _engine.updatePoolSize(presentQueue.length);
     var result = _engine.findBestMatch(presentQueue, needed);
     var selected = result.selectedPlayers;
 
@@ -645,7 +646,7 @@ class QueueService extends ChangeNotifier {
       s.waitingRoom.removeWhere((x) => x.id == p.id);
     }
 
-    var teams = _assignTeams(selected, s.teamMode, type);
+    var teams = _assignTeams(selected, s.teamMode, type, _engine);
 
     // If this exact matchup happened recently, try swapping one
     // non-paired player on team B with the next best waiting player
@@ -710,6 +711,58 @@ class QueueService extends ChangeNotifier {
       orElse: () => s.players.firstWhere((x) => x.id == playerId),
     );
     p.lastWaitStartTime = earliest.subtract(const Duration(minutes: 1));
+    notifyListeners();
+    _db.updateSession(s);
+  }
+
+  void swapWithNextMatch({
+    required String sessionId,
+    required String promotedPlayerId,
+    required String displacedPlayerId,
+  }) {
+    final s = getSession(sessionId);
+    if (s == null) return;
+
+    final promoted = s.waitingRoom
+        .where((x) => x.id == promotedPlayerId)
+        .firstOrNull;
+    final displaced = s.waitingRoom
+        .where((x) => x.id == displacedPlayerId)
+        .firstOrNull;
+    if (promoted == null || displaced == null) return;
+
+    // Simply swap their wait times — promoted gets displaced's
+    // position in queue, displaced gets promoted's position.
+    // No artificial time manipulation, just a clean swap.
+    final temp = promoted.lastWaitStartTime;
+    promoted.lastWaitStartTime  = displaced.lastWaitStartTime;
+    displaced.lastWaitStartTime = temp;
+
+    // If promoted player has a preferred partner, also swap
+    // the partner up so the pair stays together
+    if (promoted.preferredPartnerId != null) {
+      final partner = s.waitingRoom
+          .where((x) => x.id == promoted.preferredPartnerId)
+          .firstOrNull;
+      if (partner != null && partner.id != displacedPlayerId) {
+        // Find the next NEXT player after displaced to swap partner with
+        final others = s.waitingRoom
+            .where((p) =>
+                p.isPresent &&
+                p.id != promotedPlayerId &&
+                p.id != displacedPlayerId)
+            .toList()
+          ..sort((a, b) =>
+              a.lastWaitStartTime.compareTo(b.lastWaitStartTime));
+        if (others.isNotEmpty) {
+          final swapTarget = others.first;
+          final partnerTemp = partner.lastWaitStartTime;
+          partner.lastWaitStartTime    = swapTarget.lastWaitStartTime;
+          swapTarget.lastWaitStartTime = partnerTemp;
+        }
+      }
+    }
+
     notifyListeners();
     _db.updateSession(s);
   }
@@ -843,6 +896,107 @@ class QueueService extends ChangeNotifier {
     notifyListeners();
     _db.savePlayers([...winners, ...losers], sessionId);
     _db.updateSession(s);
+  }
+
+  void reverseMatchResult({
+    required String sessionId,
+    required int historyIndex,
+  }) {
+    final s = getSession(sessionId);
+    if (s == null) return;
+
+    final sessionHistory = _history
+        .where((r) => r.sessionId == sessionId)
+        .toList();
+    if (historyIndex < 0 || historyIndex >= sessionHistory.length) return;
+
+    final record      = sessionHistory[historyIndex];
+    final winnerNames = record.winnerTeam == 'A'
+        ? record.teamANames : record.teamBNames;
+    final loserNames  = record.winnerTeam == 'A'
+        ? record.teamBNames : record.teamANames;
+
+    // Reverse winner stats
+    for (final name in winnerNames) {
+      final p = s.players.where((x) => x.name == name).firstOrNull;
+      if (p == null) continue;
+      p.wins        = (p.wins - 1).clamp(0, 9999);
+      p.gamesPlayed = (p.gamesPlayed - 1).clamp(0, 9999);
+      p.currentStreak = p.currentStreak > 0 ? p.currentStreak - 1 : 0;
+      for (final oppName in loserNames) {
+        final opp = s.players.where((x) => x.name == oppName).firstOrNull;
+        if (opp == null) continue;
+        if (p.headToHead.containsKey(opp.id)) {
+          p.headToHead[opp.id]![0] =
+              (p.headToHead[opp.id]![0] - 1).clamp(0, 9999);
+        }
+      }
+    }
+
+    // Reverse loser stats
+    for (final name in loserNames) {
+      final p = s.players.where((x) => x.name == name).firstOrNull;
+      if (p == null) continue;
+      p.losses      = (p.losses - 1).clamp(0, 9999);
+      p.gamesPlayed = (p.gamesPlayed - 1).clamp(0, 9999);
+      p.currentStreak = p.currentStreak < 0 ? p.currentStreak + 1 : 0;
+      for (final oppName in winnerNames) {
+        final opp = s.players.where((x) => x.name == oppName).firstOrNull;
+        if (opp == null) continue;
+        if (p.headToHead.containsKey(opp.id)) {
+          p.headToHead[opp.id]![1] =
+              (p.headToHead[opp.id]![1] - 1).clamp(0, 9999);
+        }
+      }
+    }
+
+    // Now record the flipped result — add wins to old losers, losses to old winners
+    for (final name in loserNames) {
+      final p = s.players.where((x) => x.name == name).firstOrNull;
+      if (p == null) continue;
+      p.wins++;
+      p.gamesPlayed++;
+      p.currentStreak = p.currentStreak > 0 ? p.currentStreak + 1 : 1;
+      for (final oppName in winnerNames) {
+        final opp = s.players.where((x) => x.name == oppName).firstOrNull;
+        if (opp == null) continue;
+        p.headToHead.putIfAbsent(opp.id, () => [0, 0]);
+        p.headToHead[opp.id]![0]++;
+      }
+    }
+
+    for (final name in winnerNames) {
+      final p = s.players.where((x) => x.name == name).firstOrNull;
+      if (p == null) continue;
+      p.losses++;
+      p.gamesPlayed++;
+      p.currentStreak = p.currentStreak < 0 ? p.currentStreak - 1 : -1;
+      for (final oppName in loserNames) {
+        final opp = s.players.where((x) => x.name == oppName).firstOrNull;
+        if (opp == null) continue;
+        p.headToHead.putIfAbsent(opp.id, () => [0, 0]);
+        p.headToHead[opp.id]![1]++;
+      }
+    }
+
+    // Flip the record in history
+    final globalIndex = _history.indexOf(record);
+    if (globalIndex != -1) {
+      _history[globalIndex] = MatchRecord(
+        sessionId:       record.sessionId,
+        playedAt:        record.playedAt,
+        teamANames:      record.teamANames,
+        teamBNames:      record.teamBNames,
+        winnerTeam:      record.winnerTeam == 'A' ? 'B' : 'A',
+        courtType:       record.courtType,
+        durationSeconds: record.durationSeconds,
+      );
+    }
+
+    notifyListeners();
+    _db.updateSession(s);
+    // Persist full history by re-saving all records for this session
+    _db.saveAllMatchHistory(_history);
   }
 
   void swapPlayers({
@@ -1022,6 +1176,7 @@ class QueueService extends ChangeNotifier {
     List<Player> players,
     TeamAssignmentMode mode,
     CourtType type,
+    MatchmakingEngine engine,
   ) {
     if (type == CourtType.singles) {
       return [
@@ -1058,23 +1213,45 @@ class QueueService extends ChangeNotifier {
       return [pairs[0], rest];
     }
 
+    // No preferred pairs — mode-based assignment with partner diversity
     final p = [...players];
     switch (mode) {
       case TeamAssignmentMode.random:
+        // Shuffle but try to avoid recent partners on same team
         p.shuffle(Random());
+        // Check if team split has recent partners — if so reshuffle once
+        if (_engine.recentlyPlayedTogether(p[0].id, p[1].id) ||
+            _engine.recentlyPlayedTogether(p[2].id, p[3].id)) {
+          p.shuffle(Random());
+        }
         return [p.sublist(0, 2), p.sublist(2, 4)];
       case TeamAssignmentMode.perLevel:
         p.sort((a, b) => a.skill.index.compareTo(b.skill.index));
-        return [
-          [p[0], p[3]],
-          [p[1], p[2]],
-        ];
+        return [[p[0], p[3]], [p[1], p[2]]];
       case TeamAssignmentMode.balanced:
+      default:
         p.sort((a, b) => b.winRate.compareTo(a.winRate));
-        return [
-          [p[0], p[3]],
-          [p[1], p[2]],
+        // All 3 possible splits — pick the one with fewest recent partner pairs
+        final splits = [
+          [[p[0], p[1]], [p[2], p[3]]],
+          [[p[0], p[2]], [p[1], p[3]]],
+          [[p[0], p[3]], [p[1], p[2]]],
         ];
+        splits.sort((a, b) {
+          int recentA = 0, recentB = 0;
+          for (final team in a) {
+            if (team.length >= 2 &&
+                engine.recentlyPlayedTogether(team[0].id, team[1].id))
+              recentA++;
+          }
+          for (final team in b) {
+            if (team.length >= 2 &&
+                engine.recentlyPlayedTogether(team[0].id, team[1].id))
+              recentB++;
+          }
+          return recentA.compareTo(recentB);
+        });
+        return splits.first;
     }
   }
 }

@@ -216,6 +216,16 @@ class SettingsScreen extends StatelessWidget {
             },
           ),
           // FIX END
+          _Section('CREDITS'),
+          _Card(
+            isDark: isDark,
+            child: _Row(
+              icon: Icons.code_outlined,
+              title: 'Developed by Ezekiel Marteja',
+              subtitle: 'https://www.linkedin.com/in/ezekielmarteja/',
+              trailing: const SizedBox(),
+            ),
+          ),
           const SizedBox(height: 40),
         ],
       ),

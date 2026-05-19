@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../services/queue_service.dart';
 import '../models/player.dart';
 import '../models/session.dart';
+import 'package:collection/collection.dart';
 
 const _gold = Color(0xFFD4AF37);
 
@@ -761,7 +762,9 @@ class _QueueTab extends StatelessWidget {
     // Build display list — present players ranked by score, but ensure
     // both members of a selected pair appear in the NEXT group at the top
     // even if one partner's score ranks them lower.
-    final rankedPresent = rankedQueue.map((ps) => ps.player).toList();
+    final rankedPresent = rankedQueue.isNotEmpty
+        ? rankedQueue.map((ps) => ps.player).toList()
+        : waiting.where((p) => p.isPresent).toList();
     final absent = waiting.where((p) => !p.isPresent).toList();
 
     // Move any selected (NEXT) players that are ranked below position
@@ -788,6 +791,7 @@ class _QueueTab extends StatelessWidget {
               .difference(p.lastWaitStartTime)
               .inMinutes;
           return Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -814,15 +818,133 @@ class _QueueTab extends StatelessWidget {
                 onLongPress: (isArchived || !p.isPresent)
                     ? null
                     : () {
-                        context.read<QueueService>().promoteToFront(
-                          sessionId,
-                          p.id,
-                        );
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('${p.name} moved to front of queue'),
-                            behavior: SnackBarBehavior.floating,
-                            duration: const Duration(seconds: 2),
+                        // Get current NEXT players excluding this player
+                        final nextPlayers = nextIds
+                            .where((id) => id != p.id)
+                            .map(
+                              (id) => displayList.firstWhere(
+                                (x) => x.id == id,
+                                orElse: () => p,
+                              ),
+                            )
+                            .where((x) => x.id != p.id)
+                            .toList();
+
+                        if (nextPlayers.isEmpty) {
+                          // No NEXT players to swap with — just promote to front
+                          context.read<QueueService>().promoteToFront(
+                            sessionId,
+                            p.id,
+                          );
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                '${p.name} moved to front of queue',
+                              ),
+                              behavior: SnackBarBehavior.floating,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                          return;
+                        }
+
+                        showDialog(
+                          context: context,
+                          builder: (dCtx) => AlertDialog(
+                            title: Text('Move ${p.name} to next match'),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Select who ${p.name} replaces in the next match:',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: _textSecondary(context),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                ...nextPlayers.map(
+                                  (next) => GestureDetector(
+                                    onTap: () {
+                                      Navigator.pop(dCtx);
+                                      context
+                                          .read<QueueService>()
+                                          .swapWithNextMatch(
+                                            sessionId: sessionId,
+                                            promotedPlayerId: p.id,
+                                            displacedPlayerId: next.id,
+                                          );
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            '${p.name} swapped in for ${next.name}',
+                                          ),
+                                          behavior: SnackBarBehavior.floating,
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
+                                    },
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _gold.withOpacity(0.06),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: _gold.withOpacity(0.3),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 14,
+                                            backgroundColor: _gold.withOpacity(
+                                              0.12,
+                                            ),
+                                            child: Text(
+                                              _playerInitial(next.name),
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w700,
+                                                color: _gold,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              next.name,
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                color: _textPrimary(context),
+                                              ),
+                                            ),
+                                          ),
+                                          const Icon(
+                                            Icons.swap_horiz_rounded,
+                                            size: 16,
+                                            color: _gold,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dCtx),
+                                child: const Text('Cancel'),
+                              ),
+                            ],
                           ),
                         );
                       },
@@ -849,12 +971,125 @@ class _QueueTab extends StatelessWidget {
           onLongPress: (isArchived || !p.isPresent)
               ? null
               : () {
-                  context.read<QueueService>().promoteToFront(sessionId, p.id);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('${p.name} moved to front of queue'),
-                      behavior: SnackBarBehavior.floating,
-                      duration: const Duration(seconds: 2),
+                  // Get current NEXT players excluding this player
+                  final nextPlayers = nextIds
+                      .where((id) => id != p.id)
+                      .map(
+                        (id) => displayList.firstWhere(
+                          (x) => x.id == id,
+                          orElse: () => p,
+                        ),
+                      )
+                      .where((x) => x.id != p.id)
+                      .toList();
+
+                  if (nextPlayers.isEmpty) {
+                    // No NEXT players to swap with — just promote to front
+                    context.read<QueueService>().promoteToFront(
+                      sessionId,
+                      p.id,
+                    );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('${p.name} moved to front of queue'),
+                        behavior: SnackBarBehavior.floating,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                    return;
+                  }
+
+                  showDialog(
+                    context: context,
+                    builder: (dCtx) => AlertDialog(
+                      title: Text('Move ${p.name} to next match'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Select who ${p.name} replaces in the next match:',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: _textSecondary(context),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          ...nextPlayers.map(
+                            (next) => GestureDetector(
+                              onTap: () {
+                                Navigator.pop(dCtx);
+                                context.read<QueueService>().swapWithNextMatch(
+                                  sessionId: sessionId,
+                                  promotedPlayerId: p.id,
+                                  displacedPlayerId: next.id,
+                                );
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      '${p.name} swapped in for ${next.name}',
+                                    ),
+                                    behavior: SnackBarBehavior.floating,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _gold.withOpacity(0.06),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: _gold.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 14,
+                                      backgroundColor: _gold.withOpacity(0.12),
+                                      child: Text(
+                                        _playerInitial(next.name),
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: _gold,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        next.name,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: _textPrimary(context),
+                                        ),
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.swap_horiz_rounded,
+                                      size: 16,
+                                      color: _gold,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dCtx),
+                          child: const Text('Cancel'),
+                        ),
+                      ],
                     ),
                   );
                 },
@@ -2294,16 +2529,35 @@ class _TeamPanel extends StatelessWidget {
 
 // ── Tab: History ──────────────────────────────────────────────
 
-class _HistoryTab extends StatelessWidget {
+// ── Tab: History ──────────────────────────────────────────────
+
+class _HistoryTab extends StatefulWidget {
   final String sessionId;
   const _HistoryTab({required this.sessionId});
 
   @override
+  State<_HistoryTab> createState() => _HistoryTabState();
+}
+
+class _HistoryTabState extends State<_HistoryTab> {
+  String _search = '';
+
+  @override
   Widget build(BuildContext context) {
     final allHistory = context.watch<QueueService>().matchHistory;
-    final history = allHistory.where((r) => r.sessionId == sessionId).toList();
+    final sessionHistory = allHistory
+        .where((r) => r.sessionId == widget.sessionId)
+        .toList();
 
-    if (history.isEmpty) {
+    final history = _search.isEmpty
+        ? sessionHistory
+        : sessionHistory.where((r) {
+            final q = _search.toLowerCase();
+            return r.teamANames.any((n) => n.toLowerCase().contains(q)) ||
+                r.teamBNames.any((n) => n.toLowerCase().contains(q));
+          }).toList();
+
+    if (sessionHistory.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -2332,94 +2586,269 @@ class _HistoryTab extends StatelessWidget {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
-      itemCount: history.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
-      itemBuilder: (context, i) {
-        final r = history[i];
-        final aWon = r.winnerTeam == 'A';
-        final timeAgo = _timeAgo(r.playedAt);
-
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: _cardBg(context),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _borderColor(context)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Time
-              Text(
-                timeAgo,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: _textSecondary(context),
-                  fontWeight: FontWeight.w500,
-                ),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: TextField(
+            onChanged: (v) => setState(() => _search = v),
+            style: TextStyle(fontSize: 13, color: _textPrimary(context)),
+            decoration: InputDecoration(
+              hintText: 'Filter by player name…',
+              hintStyle: TextStyle(
+                fontSize: 13,
+                color: _textSecondary(context),
               ),
-              const SizedBox(height: 10),
-              // Teams
-              Row(
-                children: [
-                  // Team A
-                  Expanded(
-                    child: _HistoryTeam(
-                      names: r.teamANames,
-                      won: aWon,
-                      color: const Color(0xFF3B82F6),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text(
-                      'vs',
-                      style: TextStyle(
-                        fontSize: 11,
+              prefixIcon: Icon(
+                Icons.search,
+                size: 18,
+                color: _textSecondary(context),
+              ),
+              suffixIcon: _search.isNotEmpty
+                  ? GestureDetector(
+                      onTap: () => setState(() => _search = ''),
+                      child: Icon(
+                        Icons.close,
+                        size: 16,
                         color: _textSecondary(context),
-                        fontWeight: FontWeight.w600,
                       ),
-                    ),
-                  ),
-                  // Team B
-                  Expanded(
-                    child: _HistoryTeam(
-                      names: r.teamBNames,
-                      won: !aWon,
-                      color: const Color(0xFFEF4444),
-                      alignRight: true,
-                    ),
-                  ),
-                ],
+                    )
+                  : null,
+              isDense: true,
+              filled: true,
+              fillColor: _surfaceDim(context),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 10,
+                horizontal: 12,
               ),
-              const SizedBox(height: 8),
-              // Winner label
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _gold.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '🏆  ${aWon ? r.teamANames.join(' & ') : r.teamBNames.join(' & ')} won',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: _gold,
-                    ),
-                  ),
-                ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none,
               ),
-            ],
+            ),
           ),
-        );
-      },
+        ),
+        if (_search.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${history.length} match${history.length == 1 ? '' : 'es'} found',
+                style: TextStyle(fontSize: 12, color: _textSecondary(context)),
+              ),
+            ),
+          ),
+        Expanded(
+          child: history.isEmpty
+              ? Center(
+                  child: Text(
+                    'No matches found for "$_search"',
+                    style: TextStyle(color: _textSecondary(context)),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
+                  itemCount: history.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, i) {
+                    final record = history[i];
+                    final aWon = record.winnerTeam == 'A';
+                    final timeAgo = _timeAgo(record.playedAt);
+
+                    String? duration;
+                    if (record.durationSeconds != null) {
+                      final m = record.durationSeconds! ~/ 60;
+                      final s = record.durationSeconds! % 60;
+                      duration = '${m}m ${s}s';
+                    }
+
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: _cardBg(context),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: _borderColor(context)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                timeAgo,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: _textSecondary(context),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (duration != null)
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.timer_outlined,
+                                      size: 11,
+                                      color: _textSecondary(context),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      duration,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: _textSecondary(context),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _HistoryTeam(
+                                  names: record.teamANames,
+                                  won: aWon,
+                                  color: const Color(0xFF3B82F6),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                                child: Text(
+                                  'vs',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: _textSecondary(context),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: _HistoryTeam(
+                                  names: record.teamBNames,
+                                  won: !aWon,
+                                  color: const Color(0xFFEF4444),
+                                  alignRight: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _gold.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  '🏆  ${aWon ? record.teamANames.join(' & ') : record.teamBNames.join(' & ')} won',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: _gold,
+                                  ),
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () => showDialog(
+                                  context: context,
+                                  builder: (dCtx) => AlertDialog(
+                                    title: const Text('Correct Result?'),
+                                    content: Text(
+                                      'Change the winner to ${aWon ? record.teamBNames.join(' & ') : record.teamANames.join(' & ')}?\n\nThis will update all player stats.',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(dCtx),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () {
+                                          Navigator.pop(dCtx);
+                                          final idx = sessionHistory.indexOf(
+                                            record,
+                                          );
+                                          context
+                                              .read<QueueService>()
+                                              .reverseMatchResult(
+                                                sessionId: widget.sessionId,
+                                                historyIndex: idx,
+                                              );
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Result corrected'),
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                        },
+                                        child: const Text(
+                                          'Flip Winner',
+                                          style: TextStyle(
+                                            color: _gold,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: _borderColor(context),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.edit_outlined,
+                                        size: 11,
+                                        color: _textSecondary(context),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Edit',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: _textSecondary(context),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 
@@ -2446,6 +2875,7 @@ class _HistoryTeam extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: alignRight
         ? CrossAxisAlignment.end
         : CrossAxisAlignment.start,
